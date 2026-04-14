@@ -2,7 +2,7 @@
   "title": {
     "text": {
       "headline": "Мой таймлайн",
-      "text": "Данные загружаются из CSV → JSON и используются и TimelineJS, и вашей шкалой."
+      "text": ""
     }
   },
   "events": [

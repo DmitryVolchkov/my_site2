@@ -82,7 +82,7 @@ def csv_to_json(csv_file: Path):
         'title': {
             'text': {
                 'headline': 'Мой таймлайн',
-                'text': 'Данные загружаются из CSV → JSON и используются и TimelineJS, и вашей шкалой.'
+                'text': ''
             }
         },
         'events': events
