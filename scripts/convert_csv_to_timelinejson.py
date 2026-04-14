@@ -81,7 +81,7 @@ def csv_to_json(csv_file: Path):
     timeline = {
         'title': {
             'text': {
-                'headline': 'Мой таймлайн',
+                'headline': 'История земли',
                 'text': ''
             }
         },
