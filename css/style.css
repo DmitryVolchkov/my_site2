@@ -68,3 +68,70 @@ body {
         min-height: 600px;
         border-radius: 8px;
     }
+
+/* ===== Блок исторического факта ===== */
+.fact-panel {
+    display: flex;
+    flex-direction: row;
+    align-items: stretch;
+    max-width: 1000px;
+    margin: 0 auto 120px;
+    padding: 0 20px;
+    gap: 0;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    background: #fff;
+    overflow: hidden;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+}
+
+/* Левая часть: название + дата (4 строчки фиксированной высоты) */
+.fact-meta {
+    flex: 0 0 220px;
+    min-width: 180px;
+    padding: 20px 24px;
+    background: #f0f4f8;
+    border-right: 1px solid #ddd;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start;
+    gap: 8px;
+    /* 4 строки: line-height 1.5 * font-size 16px * 4 + padding */
+    min-height: calc(1.5 * 16px * 4 + 40px);
+    max-height: calc(1.5 * 16px * 4 + 40px);
+    overflow: hidden;
+}
+
+.fact-title {
+    font-size: 16px;
+    font-weight: 700;
+    color: #1a1a2e;
+    line-height: 1.4;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+.fact-date {
+    font-size: 13px;
+    color: #666;
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Правая часть: текст — расширяется под содержимое */
+.fact-body {
+    flex: 1 1 auto;
+    padding: 20px 24px;
+    overflow: visible;
+}
+
+.fact-text {
+    font-size: 15px;
+    line-height: 1.65;
+    color: #333;
+    margin: 0;
+}

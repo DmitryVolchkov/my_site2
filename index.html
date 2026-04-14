@@ -37,17 +37,21 @@
     </div>
   </header>-->
 
-  <main class="content">
-    <!--<h1>Шкала времени v5</h1>
-
-    <p>
-      Ниже встроен интерактивный таймлайн TimelineJS (Knight Lab).
-      **Данные берутся из единого набора: <code>events.csv → timeline_data.json + scale_data.json</code>.
-    </p>-->
-
+  <timeline class="content">
     <!-- TimelineJS (без iframe, напрямую на странице) -->
     <div id="timelinejs-embed" aria-label="Интерактивный таймлайн TimelineJS"></div>
-  </main>
+  </timeline>
+
+  <!-- Блок с информацией об историческом факте -->
+  <section class="fact-panel">
+    <div class="fact-meta">
+      <div class="fact-title">Название факта</div>
+      <div class="fact-date">Дата</div>
+    </div>
+    <div class="fact-body">
+      <p class="fact-text">Описание исторического события появится здесь.</p>
+    </div>
+  </section>
 
   <footer class="site-footer">
     <div class="footer-inner">
