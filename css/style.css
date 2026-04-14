@@ -72,12 +72,10 @@ body {
 /* ===== Блок исторического факта ===== */
 .fact-panel {
     display: flex;
-    flex-direction: row;
-    align-items: stretch;
+    flex-direction: column;
     max-width: 1000px;
     margin: 0 auto 120px;
     padding: 0 20px;
-    gap: 0;
     border: 1px solid #ddd;
     border-radius: 8px;
     background: #fff;
@@ -85,18 +83,16 @@ body {
     box-shadow: 0 2px 8px rgba(0,0,0,0.06);
 }
 
-/* Левая часть: название + дата (4 строчки фиксированной высоты) */
+/* Верхняя часть: название + дата (4 строчки фиксированной высоты) */
 .fact-meta {
-    flex: 0 0 220px;
-    min-width: 180px;
     padding: 20px 24px;
     background: #f0f4f8;
-    border-right: 1px solid #ddd;
+    border-bottom: 1px solid #ddd;
     display: flex;
     flex-direction: column;
     justify-content: flex-start;
-    gap: 8px;
-    /* 4 строки: line-height 1.5 * font-size 16px * 4 + padding */
+    gap: 6px;
+    /* 4 строки фиксированной высоты */
     min-height: calc(1.5 * 16px * 4 + 40px);
     max-height: calc(1.5 * 16px * 4 + 40px);
     overflow: hidden;
@@ -122,9 +118,8 @@ body {
     text-overflow: ellipsis;
 }
 
-/* Правая часть: текст — расширяется под содержимое */
+/* Нижняя часть: текст — расширяется под содержимое */
 .fact-body {
-    flex: 1 1 auto;
     padding: 20px 24px;
     overflow: visible;
 }
