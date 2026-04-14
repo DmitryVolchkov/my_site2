@@ -1,0 +1,209 @@
+/* timeline.css - стили хронологического хедера */
+
+:root {
+    --timeline-bg: #ffffff;
+    --timeline-line: #cccccc;
+    --timeline-marker: #222222;
+    --timeline-marker-zero: #0077cc;
+    --timeline-text: #222222;
+    --timeline-tooltip-bg: #222222;
+    --timeline-tooltip-text: #ffffff;
+    --timeline-font: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+/* Хедер-лента времени (100px высотой, фиксирован сверху) */
+.timeline-header {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100px;
+    background: var(--timeline-bg);
+    border-bottom: 1px solid var(--timeline-line);
+    z-index: 50;
+    display: flex;
+    align-items: center;
+    font-family: var(--timeline-font);
+}
+
+.timeline-header-inner {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 24px;
+    padding: 0 24px;
+}
+
+.timeline-title {
+    font-size: 14px;
+    font-weight: 600;
+    white-space: nowrap;
+    color: var(--timeline-text);
+}
+
+/* Скроллируемая область с осью */
+.timeline-scroll {
+    position: relative;
+    flex: 1;
+    overflow-x: auto;
+    overflow-y: visible;
+    padding-bottom: 16px; /* чтобы тултипы не обрезались */
+}
+
+/* Полотнище для оси */
+.timeline-track {
+    position: relative;
+    height: 60px;
+    min-width: 600px;
+}
+
+/* Горизонтальная ось */
+.timeline-track::before {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: var(--timeline-line);
+    transform: translateY(-50%);
+}
+
+/* Обертка маркера (позиционируется по оси) */
+.timeline-marker-wrapper {
+    position: absolute;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    text-align: center;
+    white-space: nowrap;
+}
+
+/* Сам маркер (кнопка для доступности) */
+.timeline-marker {
+    position: relative;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    border: none;
+    cursor: pointer;
+    background: var(--timeline-marker);
+    display: inline-block;
+    outline-offset: 3px;
+}
+
+/* Нулевая точка (0 г.) - выделена */
+.timeline-marker-zero {
+    width: 14px;
+    height: 14px;
+    background: var(--timeline-marker-zero);
+    font-weight: 700;
+}
+
+/* Вертикальная палочка над точкой */
+.timeline-marker::before {
+    content: "";
+    position: absolute;
+    top: -10px;
+    left: 50%;
+    width: 1px;
+    height: 10px;
+    background: var(--timeline-marker);
+    transform: translateX(-50%);
+}
+
+.timeline-marker-zero::before {
+    height: 14px;
+    background: var(--timeline-marker-zero);
+}
+
+/* Подпись года */
+.timeline-label {
+    margin-top: 6px;
+    font-size: 12px;
+    color: var(--timeline-text);
+}
+
+/* Тултип (подсказка над маркером) */
+.timeline-marker[data-tooltip]::after {
+    content: attr(data-tooltip);
+    position: absolute;
+    left: 50%;
+    bottom: 150%;
+    transform: translateX(-50%);
+    padding: 4px 8px;
+    border-radius: 4px;
+    background: var(--timeline-tooltip-bg);
+    color: var(--timeline-tooltip-text);
+    font-size: 11px;
+    white-space: nowrap;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.15s ease;
+    z-index: 60;
+}
+
+/* Маленький треугольник под тултипом */
+.timeline-marker[data-tooltip]::before {
+    content: "";
+    position: absolute;
+    left: 50%;
+    bottom: 140%;
+    transform: translateX(-50%);
+    border-width: 4px;
+    border-style: solid;
+    border-color: var(--timeline-tooltip-bg) transparent transparent transparent;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.15s ease;
+    z-index: 60;
+}
+
+/* Показывать тултип при наведении и фокусе */
+.timeline-marker:hover::after,
+.timeline-marker:focus-visible::after,
+.timeline-marker:hover::before,
+.timeline-marker:focus-visible::before {
+    opacity: 1;
+}
+
+/* Обводка для клавиатурного фокуса */
+.timeline-marker:focus-visible {
+    outline: 2px solid var(--timeline-marker-zero);
+}
+
+/* Доп. классы для BC/AD (по желанию) */
+.timeline-marker-bc {
+    background: #aa0000;
+}
+
+.timeline-marker-bc::before {
+    background: #aa0000;
+}
+
+.timeline-marker-ad {
+    background: #008800;
+}
+
+.timeline-marker-ad::before {
+    background: #008800;
+}
+
+/* Адаптивность */
+@media (max-width: 768px) {
+    .timeline-header-inner {
+        gap: 12px;
+        padding: 0 12px;
+    }
+
+    .timeline-title {
+        font-size: 12px;
+    }
+
+    .timeline-label {
+        font-size: 11px;
+    }
+
+    .timeline-track {
+        min-width: 500px;
+    }
+}

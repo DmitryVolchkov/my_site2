@@ -1,0 +1,222 @@
+/* timeline-header.css - шкала времени "по годам" в хедере */
+
+:root {
+    /* Светлая тема по умолчанию */
+    --timeline-bg: #ffffff;
+    --timeline-line-color: #cccccc;
+    --timeline-text-color: #555555;
+    --timeline-tick-color: #555555;
+    --timeline-tick-strong-color: #222222;
+    --timeline-zero-color: #0077cc;
+    --timeline-highlight-color: #000000;
+
+    --timeline-viewport-height: 80px;      /* рабочая высота шкалы */
+    --timeline-header-height: 100px;       /* общая высота хедера */
+
+    --timeline-year-width: 8px;            /* px на 1 год (масштаб по умолчанию) */
+    --timeline-label-font-size: 11px;
+}
+
+.theme-dark {
+    --timeline-bg: #111111;
+    --timeline-line-color: #444444;
+    --timeline-text-color: #dddddd;
+    --timeline-tick-color: #bbbbbb;
+    --timeline-tick-strong-color: #ffffff;
+    --timeline-zero-color: #66aaff;
+    --timeline-highlight-color: #ffffff;
+}
+
+.timeline-header {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: var(--timeline-header-height);
+    background-color: var(--timeline-bg);
+    border-bottom: 1px solid var(--timeline-line-color);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+    font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+.timeline-header-inner {
+    position: relative;
+    display: flex;
+    align-items: center;
+    width: 100%;
+    gap: 24px;
+    padding: 0 24px;
+}
+
+.timeline-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--timeline-text-color);
+    white-space: nowrap;
+}
+
+/* Неподвижная центральная метка по середине всего хедера */
+
+.timeline-center-marker {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 2px;
+    height: 60px;
+    background-color: var(--timeline-zero-color);
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+    z-index: 3;
+}
+
+.timeline-center-marker::after {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    border: 2px solid var(--timeline-zero-color);
+    background-color: #ffffff;
+    transform: translate(-50%, -50%);
+}
+
+/* Подсказка над центральной меткой (текущий год под индикатором) */
+
+.timeline-center-tooltip {
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    transform: translate(-50%, -8px);
+    padding: 2px 6px;
+    border-radius: 4px;
+    background-color: var(--timeline-highlight-color);
+    color: #ffffff;
+    font-size: 11px;
+    white-space: nowrap;
+}
+
+.timeline-nav {
+    flex: 1;
+    min-width: 0;
+}
+
+.timeline-viewport {
+    position: relative;
+    height: var(--timeline-viewport-height);
+    overflow-x: auto;
+    overflow-y: hidden;
+    cursor: grab;
+}
+
+.timeline-viewport.dragging {
+    cursor: grabbing;
+}
+
+.timeline-axis {
+    position: relative;
+    display: flex;
+    align-items: center;
+    height: 100%;
+    z-index: 1;
+}
+
+.timeline-axis::before {
+    content: "";
+    position: absolute;
+    top: 60%;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background-color: var(--timeline-line-color);
+    transform: translateY(-50%);
+    pointer-events: none;
+}
+
+.timeline-tick-wrapper {
+    position: relative;
+    flex: 0 0 var(--timeline-year-width);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-end;
+    height: 100%;
+    padding-bottom: 8px;
+}
+
+.timeline-tick {
+    width: 1px;
+    height: 6px;
+    background-color: var(--timeline-tick-color);
+    margin-bottom: 4px;
+    margin-top: auto;
+}
+
+.timeline-tick--zero {
+    width: 3px;
+    height: 10px;
+    background-color: var(--timeline-zero-color);
+    position: relative;
+}
+
+.timeline-tick--zero::after {
+    content: "";
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background-color: var(--timeline-zero-color);
+    transform: translate(-50%, 2px);
+}
+
+.timeline-tick--major {
+    width: 2px;
+    height: 10px;
+    background-color: var(--timeline-tick-strong-color);
+}
+
+.timeline-tick--minor {
+    display: none;
+}
+
+.timeline-label {
+    font-size: var(--timeline-label-font-size);
+    color: var(--timeline-text-color);
+    user-select: none;
+    pointer-events: none;
+}
+
+.timeline-label--major {
+    font-weight: 600;
+}
+
+.timeline-tick-wrapper.highlighted .timeline-tick,
+.timeline-tick-wrapper.highlighted .timeline-tick--zero {
+    background-color: var(--timeline-highlight-color);
+}
+
+.timeline-tick-wrapper.highlighted .timeline-label {
+    color: var(--timeline-highlight-color);
+}
+
+@media (max-width: 768px) {
+    :root {
+        --timeline-label-font-size: 9px;
+    }
+}
+
+@media (max-width: 480px) {
+    .timeline-title {
+        display: none;
+    }
+
+    .timeline-label--major {
+        font-size: 8px;
+    }
+}

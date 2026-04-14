@@ -1,0 +1,34 @@
+{
+  "minYear": 1945,
+  "maxYear": 2013,
+  "events": [
+    {
+      "id": "ev-0001",
+      "year": 1945,
+      "headline": "День Победы",
+      "group": "История",
+      "importance": 3
+    },
+    {
+      "id": "ev-0002",
+      "year": 1961,
+      "headline": "Первый полёт человека в космос",
+      "group": "Космос",
+      "importance": 4
+    },
+    {
+      "id": "ev-0003",
+      "year": 1991,
+      "headline": "Распад СССР",
+      "group": "История",
+      "importance": 5
+    },
+    {
+      "id": "ev-0004",
+      "year": 2013,
+      "headline": "День рождения Миши",
+      "group": "История",
+      "importance": 6
+    }
+  ]
+}

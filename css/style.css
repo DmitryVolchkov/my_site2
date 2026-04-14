@@ -1,0 +1,70 @@
+/* style.css - общий layout сайта (контент + футер) */
+
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+html, body {
+    height: 100%;
+}
+
+body {
+    font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    line-height: 1.5;
+    background: #fafafa;
+    color: #222222;
+}
+
+/* Основной контент между хедером и футером */
+.content {
+    padding: 120px 20px 140px; /* 100px хедер + отступы, 100px футер + отступы */
+    min-height: calc(100vh - 200px);
+    max-width: 1000px;
+    margin: 0 auto;
+}
+
+.content h1 {
+    margin-bottom: 16px;
+    font-size: 28px;
+}
+
+.content p {
+    margin-bottom: 10px;
+    font-size: 16px;
+}
+
+/* Футер 100px фиксированный */
+
+.site-footer {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    height: 100px;
+    background: #f3f3f3;
+    border-top: 1px solid #cccccc;
+    z-index: 40;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding: 0 20px;
+    font-size: 14px;
+}
+
+.footer-inner {
+    text-align: center;
+}
+
+.timelinejs-wrapper {
+    margin: 40px 0;
+    width: 100%;
+    max-width: 1200px;
+}
+
+    .timelinejs-wrapper iframe {
+        width: 100%;
+        min-height: 600px;
+        border-radius: 8px;
+    }

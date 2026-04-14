@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <title>Шкала времени v5 + TimelineJS (единые данные)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <!-- Ваши стили -->
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/timeline-header.css">
+
+  <!-- TimelineJS3 стили (Knight Lab) -->
+  <link rel="stylesheet" href="https://cdn.knightlab.com/libs/timeline3/latest/css/timeline.css">
+
+  <style>
+    /* Контейнер под TimelineJS (обязательно задать высоту) */
+    #timelinejs-embed {
+      width: 100%;
+      height: 350px;
+      margin: 24px 0;
+    }
+  </style>
+</head>
+<body>
+  <!--<header class="timeline-header" role="banner">
+    <div class="timeline-header-inner">
+      <div class="timeline-center-marker" aria-hidden="true">
+        <div class="timeline-center-tooltip" id="timelineCenterTooltip">—</div>
+      </div>
+      <div class="timeline-title" aria-hidden="true">Шкала времени</div>
+
+      <nav class="timeline-nav" aria-label="Горизонтальная шкала времени (годы до и после нулевого года)">
+        <div class="timeline-viewport" id="timelineViewport" tabindex="0">
+          <div class="timeline-axis" id="timelineAxis" role="list"></div>
+        </div>
+      </nav>
+    </div>
+  </header>-->
+
+  <main class="content">
+    <!--<h1>Шкала времени v5</h1>
+
+    <p>
+      Ниже встроен интерактивный таймлайн TimelineJS (Knight Lab).
+      **Данные берутся из единого набора: <code>events.csv → timeline_data.json + scale_data.json</code>.
+    </p>-->
+
+    <!-- TimelineJS (без iframe, напрямую на странице) -->
+    <div id="timelinejs-embed" aria-label="Интерактивный таймлайн TimelineJS"></div>
+  </main>
+
+  <footer class="site-footer">
+    <div class="footer-inner">
+      © 2026 — Шкала времени v5 + TimelineJS (единые данные)
+    </div>
+  </footer>
+
+  <script>
+    /**
+     * Куда положить JSON:
+     *  - Рекомендуемо: папка /data рядом с index.html
+     *      /data/scale_data.json
+     *      /data/timeline_data.json
+     *
+     * Если вы кладёте JSON рядом с index.html, поменяйте пути ниже на:
+     *   SCALE_JSON_URL = 'scale_data.json'
+     *   TIMELINE_JSON_URL = 'timeline_data.json'
+     */
+    const SCALE_JSON_URL = 'data/scale_data.json';
+    const TIMELINE_JSON_URL = 'data/timeline_data.json';
+
+    // Фоллбэк, если JSON не найден (страница всё равно откроется)
+    window.timelineConfig = {
+      minYear: -2000,
+      maxYear: 2025,
+      groupSteps: [10, 50, 100],
+      labelFrequency: 10,
+      keyboardStepYears: 10,
+      minYearWidth: 2,
+      maxYearWidth: 30
+    };
+
+    function loadScript(src) {
+      return new Promise((resolve, reject) => {
+        const s = document.createElement('script');
+        s.src = src;
+        s.onload = () => resolve();
+        s.onerror = () => reject(new Error('Не удалось загрузить скрипт: ' + src));
+        document.head.appendChild(s);
+      });
+    }
+
+    async function loadUnifiedData() {
+      const r = await fetch(SCALE_JSON_URL, { cache: 'no-store' });
+      if (!r.ok) throw new Error('scale_data.json не найден по пути: ' + SCALE_JSON_URL);
+      const scale = await r.json();
+
+      // Настраиваем вашу шкалу из JSON
+      window.timelineConfig = {
+        minYear: Number(scale.minYear),
+        maxYear: Number(scale.maxYear),
+        groupSteps: [10, 50, 100],
+        labelFrequency: 10,
+        keyboardStepYears: 10,
+        minYearWidth: 2,
+        maxYearWidth: 30
+      };
+
+      // Сохраняем события на будущее (подсветка/фильтры и т.п.)
+      window.__scaleData = scale;
+
+      // Центр-тултип по умолчанию — текущий календарный год, но ограничим диапазоном шкалы
+      const nowYear = new Date().getFullYear();
+      const clamped = Math.min(window.timelineConfig.maxYear, Math.max(window.timelineConfig.minYear, nowYear));
+      const tip = document.getElementById('timelineCenterTooltip');
+      if (tip) tip.textContent = String(clamped);
+
+      return scale;
+    }
+
+    async function initPage() {
+      // 1) Загружаем unified data (если есть)
+      try {
+        await loadUnifiedData();
+      } catch (e) {
+        console.warn(e);
+        // если данных нет — оставляем фоллбэк и всё равно инициализируем шкалу
+        const tip = document.getElementById('timelineCenterTooltip');
+        if (tip) tip.textContent = String(new Date().getFullYear());
+      }
+
+      // 2) Загружаем ваши скрипты шкалы ПОСЛЕ того, как timelineConfig готов
+      await loadScript('js/timeline-header.js');
+      await loadScript('js/main.js');
+
+      // 3) Загружаем TimelineJS и инициализируем из timeline_data.json
+      await loadScript('https://cdn.knightlab.com/libs/timeline3/latest/js/timeline.js');
+
+      if (window.TL && typeof window.TL.Timeline === 'function') {
+        // timeline_data.json должен быть доступен по URL (TIMELINE_JSON_URL)
+        window.__timeline = new TL.Timeline('timelinejs-embed', TIMELINE_JSON_URL, {
+          language: 'ru'
+        });
+      } else {
+        console.error('TimelineJS не инициализировался: TL.Timeline не найден.');
+      }
+    }
+
+    // Старт
+    initPage();
+  </script>
+</body>
+</html>

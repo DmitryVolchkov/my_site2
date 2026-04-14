@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>TimelineJS — Standalone Embed</title>
+  <style>
+    html, body { height: 100%; margin: 0; }
+    .wrap { height: 100%; width: 100%; }
+    iframe { border: 0; width: 100%; height: 100%; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <!--
+      Это “готовый” HTML-файл для встраивания TimelineJS.
+
+      По умолчанию здесь вставлен примерный таймлайн с страницы Make a Timeline (Knight Lab).
+      Чтобы вставить СВОЙ таймлайн:
+      1) Опубликуйте Google Sheet (File → Share → Publish to the web),
+      2) Возьмите “Share Link” / “Embed” в разделе Step 4 на странице Make a Timeline,
+      3) Замените src у iframe ниже на ваш.
+    -->
+    <iframe
+      src="https://cdn.knightlab.com/libs/timeline3/latest/embed/index.html?source=1xuY4upIooEeszZ_lCmeNx24eSFWe0rHe9ZdqH2xqVNk&font=Default&lang=ru&initial_zoom=2&height=650"
+      allowfullscreen
+      loading="lazy"
+      referrerpolicy="no-referrer-when-downgrade">
+    </iframe>
+  </div>
+</body>
+</html>

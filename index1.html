@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <title>Шкала времени v5 (−2000…2025, центр = текущий год)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/timeline-header.css">
+</head>
+<body>
+    <header class="timeline-header" role="banner">
+        <div class="timeline-header-inner">
+            <div class="timeline-center-marker" aria-hidden="true">
+                <div class="timeline-center-tooltip" id="timelineCenterTooltip">2025</div>
+            </div>
+            <div class="timeline-title" aria-hidden="true">
+                Шкала времени
+            </div>
+            <nav class="timeline-nav"
+                 aria-label="Горизонтальная шкала времени (годы до и после нулевого года)">
+                <div class="timeline-viewport"
+                     id="timelineViewport"
+                     tabindex="0">
+                    <div class="timeline-axis"
+                         id="timelineAxis"
+                         role="list">
+                    </div>
+                </div>
+            </nav>
+        </div>
+    </header>
+
+    <main class="content">
+
+        <h1>Шкала времени v5</h1>
+
+        <p>
+            Ниже встроен интерактивный таймлайн на базе TimelineJS (Knight Lab),
+            синхронизированный как отдельный визуальный слой.
+        </p>
+
+        <!-- TimelineJS embed -->
+        <section class="timelinejs-wrapper" aria-label="Интерактивный таймлайн событий">
+            <iframe src="https://cdn.knightlab.com/libs/timeline3/latest/embed/index.html
+      ?source=1xuY4upIooEeszZ_lCmeNx24eSFWe0rHe9ZdqH2xqVNk
+      &font=Default
+      &lang=ru
+      &initial_zoom=2"
+                    width="100%"
+                    height="650"
+                    frameborder="0"
+                    allowfullscreen
+                    loading="lazy">
+            </iframe>
+        </section>
+
+    </main>
+
+
+    <footer class="site-footer">
+        <div class="footer-inner">
+            © 2025 — Шкала времени v5 (−2000…2025, центральная метка показывает текущий год под ней).
+        </div>
+    </footer>
+
+    <script>
+        window.timelineConfig = {
+            minYear: -2000,
+            maxYear: 2025,
+            groupSteps: [10, 50, 100],
+            // centerYear не задаём явно — будет использован текущий календарный год
+            labelFrequency: 10,
+            keyboardStepYears: 10,
+            minYearWidth: 2,
+            maxYearWidth: 30
+        };
+    </script>
+
+    <script src="js/timeline-header.js"></script>
+    <script src="js/main.js"></script>
+</body>
+</html>
