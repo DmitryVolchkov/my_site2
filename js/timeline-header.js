@@ -214,8 +214,8 @@
     const viewportWidth = viewport.clientWidth || 1;
     const centerPos = viewport.scrollLeft + viewportWidth / 2;
 
-    let index = centerPos / yearWidth;
-    let year = Math.round(cfg.minYear + index);
+    const index = Math.floor(centerPos / yearWidth);
+    let year = cfg.minYear + index;
 
     if (year < cfg.minYear) year = cfg.minYear;
     if (year > cfg.maxYear) year = cfg.maxYear;
