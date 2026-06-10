@@ -1,0 +1,77 @@
+/* Блок поиска по дате между таймлайном и карточкой факта */
+
+.date-search-panel {
+    max-width: 1000px;
+    margin: 0 auto 25px;
+    padding: 0 20px;
+    box-sizing: border-box;
+}
+
+.date-search-form {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px 16px;
+    padding: 14px 18px;
+    background: #fff;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+}
+
+.date-search-label {
+    font-size: 14px;
+    font-weight: 600;
+    color: #1a2a3a;
+    white-space: nowrap;
+}
+
+.date-search-input {
+    flex: 1 1 160px;
+    min-width: 140px;
+    max-width: 220px;
+    padding: 8px 12px;
+    border: 1px solid #d4cfc4;
+    border-radius: 6px;
+    font-size: 15px;
+    font-family: inherit;
+    color: #1a2a3a;
+}
+
+.date-search-input:focus {
+    outline: 2px solid #1a2a3a;
+    outline-offset: 0;
+    border-color: #1a2a3a;
+}
+
+.date-search-submit {
+    padding: 8px 18px;
+    border: 1px solid #1a2a3a;
+    border-radius: 6px;
+    background: #1a2a3a;
+    color: #fff;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.date-search-submit:hover {
+    background: #243548;
+}
+
+.date-search-status {
+    flex: 1 1 100%;
+    margin: 0;
+    font-size: 13px;
+    color: #666;
+    min-height: 1.2em;
+}
+
+.date-search-status.is-error {
+    color: #8b2c2c;
+}
+
+.date-search-status.is-success {
+    color: #2a5a3a;
+}

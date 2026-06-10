@@ -2,73 +2,128 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8">
-  <title>Шкала времени v5 + TimelineJS (единые данные)</title>
+  <title>Архив истории — хронология и документы</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
   <!-- Ваши стили -->
   <link rel="stylesheet" href="css/style.css">
-  <link rel="stylesheet" href="css/timeline-header.css">
+  <link rel="stylesheet" href="css/site-header.css">
 
-  <!-- TimelineJS3 стили (Knight Lab) -->
-  <link rel="stylesheet" href="https://cdn.knightlab.com/libs/timeline3/latest/css/timeline.css">
+  <!-- TimelineJS3 (локально) -->
+  <link rel="stylesheet" href="css/vendor/timeline.css">
+  <link rel="stylesheet" href="css/timeline-layout.css?v=axis-fix-3">
+  <link rel="stylesheet" href="css/date-search.css">
 
   <style>
-    /* Контейнер под TimelineJS (обязательно задать высоту) */
+    /* 22px группа + 55px маркер + отступы TL (4px) + ось 39px + padding main 12px */
+    main.content {
+      height: calc(22px + 55px + 4px + 39px + 12px);
+      max-height: calc(22px + 55px + 4px + 39px + 12px);
+      padding: 6px 20px;
+      margin-bottom: 0;
+      overflow: hidden;
+      box-sizing: border-box;
+    }
+
+    main.content #chronology {
+      height: 100%;
+    }
+
+    /* Контейнер под TimelineJS — на всю высоту main.content */
     #timelinejs-embed {
       width: 100%;
-      height: 350px;
-      margin: 24px 0;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+    }
+
+    /* До загрузки timeline-layout.js — не даём timenav раздуваться до 171px */
+    #timelinejs-embed .tl-timenav {
+      height: 100% !important;
+      max-height: 100% !important;
+      overflow: hidden !important;
+    }
+
+    #timelinejs-embed .tl-storyslider {
+      display: none !important;
+    }
+
+    /* Ссылка на timeline.knightlab.com (блок атрибуции TimelineJS) */
+    #timelinejs-embed .tl-attribution {
+      display: none !important;
     }
   </style>
 </head>
 <body>
-  <!--<header class="timeline-header" role="banner">
-    <div class="timeline-header-inner">
-      <div class="timeline-center-marker" aria-hidden="true">
-        <div class="timeline-center-tooltip" id="timelineCenterTooltip">—</div>
-      </div>
-      <div class="timeline-title" aria-hidden="true">Шкала времени</div>
+  <header class="site-header" role="banner">
+    <div class="site-header-inner">
+      <a class="site-brand" href="/">
+        <span class="site-brand-title">Архив истории</span>
+      </a>
 
-      <nav class="timeline-nav" aria-label="Горизонтальная шкала времени (годы до и после нулевого года)">
-        <div class="timeline-viewport" id="timelineViewport" tabindex="0">
-          <div class="timeline-axis" id="timelineAxis" role="list"></div>
-        </div>
+      <nav class="site-nav" aria-label="Основная навигация">
+        <ul class="site-nav-list">
+          <li><a href="#" aria-current="page">Главная</a></li>
+          <li><a href="admin.html">Администрирование</a></li>
+          <li><a href="#contacts">Контакты</a></li>
+        </ul>
       </nav>
+
+      <form class="site-search" role="search" action="#" method="get">
+        <input id="site-search-input" type="search" name="q" placeholder="Поиск…" aria-label="Поиск" autocomplete="off">
+        <button type="submit">Найти</button>
+      </form>
     </div>
-  </header>-->
+  </header>
 
-  <timeline class="content">
-    <!-- TimelineJS (без iframe, напрямую на странице) -->
-    <div id="timelinejs-embed" aria-label="Интерактивный таймлайн TimelineJS"></div>
-  </timeline>
+  <main class="content">
+    <section id="chronology" aria-label="Хронология событий">
+      <div id="timelinejs-embed" aria-label="Интерактивный таймлайн TimelineJS"></div>
+    </section>
+  </main>
 
-  <!-- Блок с информацией об историческом факте -->
-  <section class="fact-panel">
+  <section class="date-search-panel" id="date-search" aria-label="Поиск по дате">
+    <form id="date-search-form" class="date-search-form">
+      <label class="date-search-label" for="date-search-input">Перейти к дате</label>
+      <input class="date-search-input" type="date" id="date-search-input" name="date" required>
+      <button class="date-search-submit" type="submit">Найти</button>
+      <p class="date-search-status" id="date-search-status" aria-live="polite">Статус поиска</p>
+    </form>
+  </section>
+
+  <section class="fact-panel" id="documents" aria-labelledby="fact-panel-heading">
+    <h2 id="fact-panel-heading" class="visually-hidden">Выбранный документ</h2>
     <div class="fact-meta">
-      <div class="fact-title">Название факта</div>
+      <div class="fact-title-row">
+        <div class="fact-title">Название факта</div>
+        <span class="fact-hashtag" id="fact-hashtag" hidden></span>
+      </div>
       <div class="fact-date">Дата</div>
     </div>
     <div class="fact-body">
-      <p class="fact-text">Описание исторического события появится здесь.</p>
+      <div class="fact-summary-block" id="fact-summary-block" hidden>
+        <h3 class="fact-block-label">Кратко</h3>
+        <p class="fact-summary" id="fact-summary"></p>
+      </div>
+      <div class="fact-full is-collapsed" id="fact-full">
+        <h3 class="fact-block-label">Описание</h3>
+        <p class="fact-full-text" id="fact-full-text">Описание исторического события появится здесь.</p>
+        <div class="fact-full-media" id="fact-full-media"></div>
+        <button type="button" class="fact-full-toggle" id="fact-full-toggle" hidden>Читать полностью</button>
+      </div>
     </div>
   </section>
 
-  <footer class="site-footer">
+  <footer class="site-footer" id="contacts">
     <div class="footer-inner">
-      © 2026 — Шкала времени v5 + TimelineJS (единые данные)
+      © 2026 Архив истории — хронология и документы
     </div>
   </footer>
 
   <script>
     /**
-     * Куда положить JSON:
-     *  - Рекомендуемо: папка /data рядом с index.html
-     *      /data/scale_data.json
-     *      /data/timeline_data.json
-     *
-     * Если вы кладёте JSON рядом с index.html, поменяйте пути ниже на:
-     *   SCALE_JSON_URL = 'scale_data.json'
-     *   TIMELINE_JSON_URL = 'timeline_data.json'
+     * Данные собираются из SQLite сервером, который запускается командой:
+     *   python server.py
      */
     const SCALE_JSON_URL = 'data/scale_data.json';
     const TIMELINE_JSON_URL = 'data/timeline_data.json';
@@ -96,7 +151,7 @@
 
     async function loadUnifiedData() {
       const r = await fetch(SCALE_JSON_URL, { cache: 'no-store' });
-      if (!r.ok) throw new Error('scale_data.json не найден по пути: ' + SCALE_JSON_URL);
+      if (!r.ok) throw new Error('Данные шкалы не найдены по пути: ' + SCALE_JSON_URL);
       const scale = await r.json();
 
       // Настраиваем вашу шкалу из JSON
@@ -113,12 +168,6 @@
       // Сохраняем события на будущее (подсветка/фильтры и т.п.)
       window.__scaleData = scale;
 
-      // Центр-тултип по умолчанию — текущий календарный год, но ограничим диапазоном шкалы
-      const nowYear = new Date().getFullYear();
-      const clamped = Math.min(window.timelineConfig.maxYear, Math.max(window.timelineConfig.minYear, nowYear));
-      const tip = document.getElementById('timelineCenterTooltip');
-      if (tip) tip.textContent = String(clamped);
-
       return scale;
     }
 
@@ -128,23 +177,33 @@
         await loadUnifiedData();
       } catch (e) {
         console.warn(e);
-        // если данных нет — оставляем фоллбэк и всё равно инициализируем шкалу
-        const tip = document.getElementById('timelineCenterTooltip');
-        if (tip) tip.textContent = String(new Date().getFullYear());
       }
 
-      // 2) Загружаем ваши скрипты шкалы ПОСЛЕ того, как timelineConfig готов
-      await loadScript('js/timeline-header.js');
       await loadScript('js/main.js');
 
-      // 3) Загружаем TimelineJS и инициализируем из timeline_data.json
-      await loadScript('https://cdn.knightlab.com/libs/timeline3/latest/js/timeline.js');
+      // Загружаем TimelineJS и инициализируем из timeline_data.json
+      await loadScript('js/vendor/timeline.js');
 
       if (window.TL && typeof window.TL.Timeline === 'function') {
-        // timeline_data.json должен быть доступен по URL (TIMELINE_JSON_URL)
         window.__timeline = new TL.Timeline('timelinejs-embed', TIMELINE_JSON_URL, {
-          language: 'ru'
+          language: 'ru',
+          timenav_height_percentage: 100,
+          timenav_height_min: 90,
+          max_rows: 1,
+          marker_height_min: 55,
+          marker_padding: 2
         });
+
+        await loadScript('js/timeline-layout.js?v=axis-fix-3');
+        if (typeof window.bindTimelineLayout === 'function') {
+          window.bindTimelineLayout(window.__timeline);
+        }
+
+        await loadScript('js/date-format.js');
+        await loadScript('js/date-search.js?v=media-after-text-1');
+        if (typeof window.initDateSearch === 'function') {
+          window.initDateSearch(window.__timeline, TIMELINE_JSON_URL);
+        }
       } else {
         console.error('TimelineJS не инициализировался: TL.Timeline не найден.');
       }

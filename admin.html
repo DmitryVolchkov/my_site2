@@ -1,0 +1,853 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <title>Администрирование — Архив истории</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/site-header.css">
+  <link rel="stylesheet" href="css/admin.css">
+</head>
+<body class="admin-body">
+  <header class="site-header" role="banner">
+    <div class="site-header-inner">
+      <a class="site-brand" href="index.html">
+        <span class="site-brand-title">Архив истории</span>
+      </a>
+      <nav class="site-nav" aria-label="Основная навигация">
+        <ul class="site-nav-list">
+          <li><a href="index.html">Главная</a></li>
+          <li><a href="admin.html" aria-current="page">Администрирование</a></li>
+          <li><a href="index.html#contacts">Контакты</a></li>
+        </ul>
+      </nav>
+      <div class="site-search" style="justify-self: end; min-width: auto;">
+        <button type="button" class="admin-btn" id="btn-logout" hidden>Выйти</button>
+      </div>
+    </div>
+  </header>
+
+  <section class="admin-login" id="admin-login">
+    <h1>Вход в панель</h1>
+    <form id="login-form">
+      <div class="admin-field" style="margin-bottom: 14px;">
+        <label for="login-email">Email</label>
+        <input type="email" id="login-email" name="email" required autocomplete="username" value="admin@archive.local">
+      </div>
+      <div class="admin-field" style="margin-bottom: 14px;">
+        <label for="login-password">Пароль</label>
+        <input type="password" id="login-password" name="password" required autocomplete="current-password" value="admin">
+        <button type="button" class="admin-password-toggle" id="login-password-toggle" aria-controls="login-password" aria-pressed="false">Показать пароль</button>
+      </div>
+      <button type="submit" class="admin-btn admin-btn-primary">Войти</button>
+      <p class="admin-status" id="login-status" style="margin-top: 12px;"></p>
+    </form>
+    <p class="admin-login-hint">
+      Демо: admin@archive.local / admin или editor@archive.local / editor
+    </p>
+  </section>
+
+  <main class="admin-main" id="admin-app" hidden>
+    <div class="admin-intro">
+      <h1>Администрирование архива</h1>
+      <p>События, даты, материалы с изображениями и учётные записи. Данные и пользователи сохраняются в SQLite через локальный API; <code>data/events.csv</code> используется только для первого импорта.</p>
+      <p class="admin-notice" id="admin-user-info"></p>
+    </div>
+
+    <div class="admin-layout">
+      <nav class="admin-tabs" aria-label="Разделы админки">
+        <button type="button" class="admin-tab is-active" data-tab="events">Наполнение</button>
+        <button type="button" class="admin-tab" data-tab="database">База данных</button>
+        <button type="button" class="admin-tab" data-tab="users">Пользователи</button>
+        <button type="button" class="admin-tab" data-tab="sources">Источники</button>
+        <button type="button" class="admin-tab" data-tab="media">Медиа</button>
+        <button type="button" class="admin-tab" data-tab="tags">Теги</button>
+        <button type="button" class="admin-tab" data-tab="groups">Группы</button>
+        <button type="button" class="admin-tab" data-tab="audit">Аудит</button>
+        <button type="button" class="admin-tab" data-tab="db-schema">Структура БД</button>
+      </nav>
+
+      <div class="admin-panels">
+        <!-- Наполнение -->
+        <section class="admin-panel is-active" id="panel-events" aria-labelledby="events-heading">
+          <h2 id="events-heading">Наполнение</h2>
+          <div class="admin-toolbar">
+            <button type="button" class="admin-btn admin-btn-primary" id="btn-event-new">+ Новое событие</button>
+            <button type="button" class="admin-btn" id="btn-reset-events">Сбросить форму</button>
+            <button type="button" class="admin-btn" id="btn-event-preview">Предпросмотр карточки</button>
+          </div>
+
+          <form id="event-form" class="admin-form-grid">
+            <h3 class="field-full admin-form-heading" id="event-form-title">Новое событие</h3>
+
+            <div class="admin-event-meta-bar field-full">
+              <div class="admin-field admin-event-meta-id">
+                <label for="event-id">Код <span class="admin-field-hint">(авто)</span></label>
+                <input type="text" id="event-id" name="id" readonly required aria-readonly="true">
+              </div>
+              <div class="admin-field">
+                <label for="event-status">Публикация</label>
+                <select id="event-status" name="status" title="Видимость на сайте">
+                  <option value="draft">Черновик</option>
+                  <option value="review">На проверке</option>
+                  <option value="published">Опубликовано</option>
+                </select>
+              </div>
+              <div class="admin-field">
+                <label for="event-verification-status">Проверка</label>
+                <select id="event-verification-status" name="verification_status" title="Надёжность данных">
+                  <option value="unconfirmed">Не подтверждено</option>
+                  <option value="needs_review">Требует проверки</option>
+                  <option value="disputed">Спорно</option>
+                  <option value="verified">Проверено</option>
+                </select>
+              </div>
+              <div class="admin-field admin-event-meta-importance">
+                <label for="event-importance">Важн.</label>
+                <input type="number" id="event-importance" name="importance" min="1" max="10" value="3" title="Важность от 1 до 10">
+              </div>
+              <div class="admin-field admin-event-meta-hashtag">
+                <label for="event-hashtag">Хештег</label>
+                <input type="text" id="event-hashtag" name="hashtag" placeholder="#ДеньПобеды" title="Короткая метка без пробелов; # необязателен">
+              </div>
+            </div>
+            <p class="admin-hint admin-event-meta-hint field-full" id="event-status-hint" aria-live="polite"></p>
+
+            <div class="admin-date-range field-full">
+              <div class="admin-date-group">
+                <div class="admin-date-group-title">ДАТА НАЧАЛА</div>
+                <div class="admin-date-fields">
+                  <div class="admin-date-values">
+                    <div class="admin-field admin-date-field-day">
+                      <label for="event-start-day">День</label>
+                      <input type="number" id="event-start-day" name="start_day" min="1" max="31" placeholder="1–31">
+                    </div>
+                    <div class="admin-field admin-date-field-month">
+                      <label for="event-start-month">Месяц</label>
+                      <input type="number" id="event-start-month" name="start_month" min="1" max="12" placeholder="1–12">
+                    </div>
+                    <div class="admin-field admin-date-field-year">
+                      <label for="event-start-year">Год *</label>
+                      <input type="number" id="event-start-year" name="start_year" required min="-3000" max="3000">
+                    </div>
+                  </div>
+                  <div class="admin-date-options">
+                    <label class="admin-check-pill admin-date-approx-pill" for="event-start-date-approximate" title="Дата начала не подтверждена точно">
+                      <input type="checkbox" id="event-start-date-approximate" name="start_date_approximate" value="1">
+                      <span>≈ Приблизительная</span>
+                    </label>
+                    <select id="event-start-date-precision" class="admin-date-precision-select" name="start_date_precision" title="Точность даты начала" aria-label="Точность даты начала">
+                      <option value="">Авто</option>
+                      <option value="day">День</option>
+                      <option value="month">Месяц</option>
+                      <option value="year">Год</option>
+                      <option value="approximate">Приблизит.</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+              <div class="admin-date-group">
+                <div class="admin-date-group-title">ДАТА ОКОНЧАНИЯ</div>
+                <div class="admin-date-fields">
+                  <div class="admin-date-values">
+                    <div class="admin-field admin-date-field-day">
+                      <label for="event-end-day">День</label>
+                      <input type="number" id="event-end-day" name="end_day" min="1" max="31">
+                    </div>
+                    <div class="admin-field admin-date-field-month">
+                      <label for="event-end-month">Месяц</label>
+                      <input type="number" id="event-end-month" name="end_month" min="1" max="12">
+                    </div>
+                    <div class="admin-field admin-date-field-year">
+                      <label for="event-end-year">Год</label>
+                      <input type="number" id="event-end-year" name="end_year" min="-3000" max="3000">
+                    </div>
+                  </div>
+                  <div class="admin-date-options">
+                    <label class="admin-check-pill admin-date-approx-pill" for="event-end-date-approximate" title="Дата окончания не подтверждена точно">
+                      <input type="checkbox" id="event-end-date-approximate" name="end_date_approximate" value="1">
+                      <span>≈ Приблизительная</span>
+                    </label>
+                    <select id="event-end-date-precision" class="admin-date-precision-select" name="end_date_precision" title="Точность даты окончания" aria-label="Точность даты окончания">
+                      <option value="">Авто</option>
+                      <option value="day">День</option>
+                      <option value="month">Месяц</option>
+                      <option value="year">Год</option>
+                      <option value="approximate">Приблизит.</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <p class="admin-hint admin-date-logic-hint field-full" id="event-date-hint" aria-live="polite"></p>
+
+            <h3 class="field-full admin-form-heading">Классификация</h3>
+            <div class="admin-field">
+              <label for="event-domain">Область</label>
+              <input type="text" id="event-domain" name="domain" placeholder="политика, наука, культура">
+            </div>
+            <div class="admin-field">
+              <label for="event-category">Категория</label>
+              <input type="text" id="event-category" name="category" placeholder="космос, литература">
+            </div>
+            <div class="admin-field">
+              <label for="event-subcategory">Подкатегория</label>
+              <input type="text" id="event-subcategory" name="subcategory">
+            </div>
+            <div class="admin-field">
+              <label for="event-type">Тип события</label>
+              <input type="text" id="event-type" name="event_type" placeholder="война, договор, открытие">
+            </div>
+            <div class="admin-field">
+              <label for="event-scale">Масштаб</label>
+              <select id="event-scale" name="scale">
+                <option value="">Не задан</option>
+                <option value="local">Локальное</option>
+                <option value="national">Национальное</option>
+                <option value="regional">Региональное</option>
+                <option value="international">Международное</option>
+              </select>
+            </div>
+
+            <h3 class="field-full admin-form-heading">География</h3>
+            <div class="admin-field">
+              <label for="event-country">Страна</label>
+              <input type="text" id="event-country" name="country_name">
+            </div>
+            <div class="admin-field">
+              <label for="event-region">Регион</label>
+              <input type="text" id="event-region" name="region">
+            </div>
+            <div class="admin-field">
+              <label for="event-city">Город</label>
+              <input type="text" id="event-city" name="city">
+            </div>
+
+            <div class="admin-field field-full">
+              <label for="event-headline">Заголовок</label>
+              <input type="text" id="event-headline" name="headline" required>
+            </div>
+            <div class="admin-field field-full">
+              <label for="event-summary">Краткое описание</label>
+              <textarea id="event-summary" name="summary" rows="3" maxlength="500" placeholder="До 500 символов для карточки и списков"></textarea>
+            </div>
+            <div class="admin-field field-full">
+              <label for="event-text">Полное описание</label>
+              <textarea id="event-text" name="text" rows="12" maxlength="5000" placeholder="До 5000 символов плотного текста"></textarea>
+              <div class="admin-char-counter" id="event-text-counter" aria-live="polite">0 / 5000 символов</div>
+            </div>
+
+            <div class="admin-field field-full admin-media-block">
+              <label>Группы</label>
+              <div class="admin-media-toolbar">
+                <div class="admin-add-menu">
+                  <button type="button" class="admin-btn admin-btn-primary" id="btn-event-group-add" aria-haspopup="true" aria-expanded="false">+ Группа</button>
+                  <div class="admin-add-menu-panel" id="event-group-add-menu" hidden>
+                    <button type="button" class="admin-add-menu-item" id="btn-event-group-new">Новый</button>
+                    <button type="button" class="admin-add-menu-item" id="btn-event-group-db">База</button>
+                  </div>
+                </div>
+              </div>
+              <ul class="admin-media-list" id="event-group-list" aria-label="Группы события"></ul>
+              <p class="admin-hint">Новый — создать группу и добавить к событию. База — выбор из справочника. При сохранении первая группа записывается в поле TimelineJS.</p>
+              <select id="event-group-ids" name="group_ids" multiple hidden></select>
+            </div>
+            <div class="admin-field field-full admin-media-block">
+              <label>Источники</label>
+              <div class="admin-media-toolbar">
+                <div class="admin-add-menu">
+                  <button type="button" class="admin-btn admin-btn-primary" id="btn-event-source-add" aria-haspopup="true" aria-expanded="false">+ Источник</button>
+                  <div class="admin-add-menu-panel" id="event-source-add-menu" hidden>
+                    <button type="button" class="admin-add-menu-item" id="btn-event-source-new">Новый</button>
+                    <button type="button" class="admin-add-menu-item" id="btn-event-source-db">База</button>
+                  </div>
+                </div>
+              </div>
+              <ul class="admin-media-list" id="event-source-list" aria-label="Источники события"></ul>
+              <p class="admin-hint">Новый — создать источник и добавить к событию. База — выбор из справочника.</p>
+              <select id="event-source-ids" name="source_ids" multiple hidden></select>
+            </div>
+            <div class="admin-field field-full admin-media-block">
+              <label>Медиа</label>
+              <div class="admin-media-toolbar">
+                <div class="admin-add-menu">
+                  <button type="button" class="admin-btn admin-btn-primary" id="btn-event-media-add" aria-haspopup="true" aria-expanded="false">+ Медиа</button>
+                  <div class="admin-add-menu-panel" id="event-media-add-menu" hidden>
+                    <button type="button" class="admin-add-menu-item" id="btn-event-media-folder">Папка</button>
+                    <button type="button" class="admin-add-menu-item" id="btn-event-media-db">База</button>
+                  </div>
+                </div>
+              </div>
+              <ul class="admin-media-list" id="event-media-list" aria-label="Медиа события"></ul>
+              <p class="admin-hint">Папка — новый файл с компьютера. База — выбор из справочника медиа.</p>
+              <select id="event-media-ids" name="media_ids" multiple hidden></select>
+              <input type="hidden" id="event-media-url" name="media_url">
+              <input type="hidden" id="event-media-caption" name="media_caption">
+              <input type="hidden" id="event-media-credit" name="media_credit">
+            </div>
+            <div class="admin-field field-full admin-media-block">
+              <label>Теги</label>
+              <div class="admin-media-toolbar">
+                <div class="admin-add-menu">
+                  <button type="button" class="admin-btn admin-btn-primary" id="btn-event-tag-add" aria-haspopup="true" aria-expanded="false">+ Тег</button>
+                  <div class="admin-add-menu-panel" id="event-tag-add-menu" hidden>
+                    <button type="button" class="admin-add-menu-item" id="btn-event-tag-new">Новый</button>
+                    <button type="button" class="admin-add-menu-item" id="btn-event-tag-db">База</button>
+                  </div>
+                </div>
+              </div>
+              <ul class="admin-media-list" id="event-tag-list" aria-label="Теги события"></ul>
+              <p class="admin-hint">Новый — создать тег и добавить к событию. База — выбор из справочника. При сохранении формируется строка тегов для TimelineJS.</p>
+              <select id="event-tag-ids" name="tag_ids" multiple hidden></select>
+            </div>
+
+            <div class="admin-field field-full">
+              <label for="event-related">Связанные события</label>
+              <input type="text" id="event-related" name="related_events" placeholder="ev-0001; ev-0002">
+              <p class="admin-hint">Коды событий через «;» — причина, следствие или аналог.</p>
+            </div>
+
+            <div class="admin-form-actions">
+              <button type="submit" class="admin-btn admin-btn-primary">Сохранить событие</button>
+              <button type="reset" class="admin-btn">Очистить форму</button>
+            </div>
+          </form>
+          <p class="admin-status" id="events-status"></p>
+        </section>
+
+        <!-- База данных (события) -->
+        <section class="admin-panel" id="panel-database" aria-labelledby="database-heading">
+          <h2 id="database-heading">База данных</h2>
+          <p>Все события, сохранённые в SQLite. Нажмите «Изменить», чтобы открыть запись во вкладке «Наполнение».</p>
+          <div class="admin-toolbar">
+            <button type="button" class="admin-btn admin-btn-primary" id="btn-reload-csv">Обновить из БД</button>
+            <button type="button" class="admin-btn" id="btn-export-csv">Скачать CSV-копию</button>
+          </div>
+          <div class="admin-table-wrap">
+            <table class="admin-table" aria-label="Список событий">
+              <thead>
+                <tr>
+                  <th>Код</th>
+                  <th>Дата</th>
+                  <th>Заголовок</th>
+                  <th>Группа</th>
+                  <th>Статус</th>
+                  <th>Медиа</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="events-table-body"></tbody>
+            </table>
+          </div>
+          <p class="admin-status" id="events-db-status"></p>
+        </section>
+
+        <!-- Пользователи -->
+        <section class="admin-panel" id="panel-users" aria-labelledby="users-heading">
+          <h2 id="users-heading">Пользователи</h2>
+          <div class="admin-toolbar">
+            <button type="button" class="admin-btn admin-btn-primary" id="btn-user-new">+ Новый пользователь</button>
+          </div>
+
+          <form id="user-form" class="admin-form-grid">
+            <h3 class="field-full admin-form-heading" id="user-form-title">Новый пользователь</h3>
+            <input type="hidden" id="user-id" name="id">
+
+            <div class="admin-field">
+              <label for="user-name">Имя *</label>
+              <input type="text" id="user-name" name="name" required>
+            </div>
+            <div class="admin-field">
+              <label for="user-email">Email *</label>
+              <input type="email" id="user-email" name="email" required>
+            </div>
+            <div class="admin-field">
+              <label for="user-role">Роль</label>
+              <select id="user-role" name="role">
+                <option value="admin">Администратор</option>
+                <option value="editor">Редактор</option>
+                <option value="viewer">Просмотр</option>
+              </select>
+            </div>
+            <div class="admin-field">
+              <label for="user-password">Пароль</label>
+              <input type="password" id="user-password" name="password" autocomplete="new-password">
+            </div>
+            <div class="admin-field">
+              <label>
+                <input type="checkbox" id="user-active" name="active" checked>
+                Активен
+              </label>
+            </div>
+
+            <div class="admin-form-actions">
+              <button type="submit" class="admin-btn admin-btn-primary">Сохранить пользователя</button>
+              <button type="reset" class="admin-btn">Очистить</button>
+            </div>
+          </form>
+
+          <div class="admin-table-wrap">
+            <table class="admin-table" aria-label="Пользователи">
+              <thead>
+                <tr>
+                  <th>Имя</th>
+                  <th>Email</th>
+                  <th>Роль</th>
+                  <th>Статус</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="users-table-body"></tbody>
+            </table>
+          </div>
+          <p class="admin-status" id="users-status"></p>
+        </section>
+
+        <!-- Источники -->
+        <section class="admin-panel" id="panel-sources" aria-labelledby="sources-heading">
+          <h2 id="sources-heading">Источники</h2>
+          <div class="admin-toolbar">
+            <button type="button" class="admin-btn admin-btn-primary" id="btn-source-new">+ Новый источник</button>
+            <button type="button" class="admin-btn" id="btn-source-refresh">Обновить</button>
+          </div>
+          <form id="source-form" class="admin-form-grid">
+            <h3 class="field-full admin-form-heading" id="source-form-title">Новый источник</h3>
+            <input type="hidden" id="source-id" name="id">
+            <div class="admin-field field-full">
+              <label for="source-title">Название *</label>
+              <input type="text" id="source-title" name="title" required>
+            </div>
+            <div class="admin-field field-full">
+              <label for="source-url">URL</label>
+              <input type="text" id="source-url" name="url">
+            </div>
+            <div class="admin-field">
+              <label for="source-type">Тип</label>
+              <input type="text" id="source-type" name="type" placeholder="архив, книга, статья">
+            </div>
+            <div class="admin-field">
+              <label for="source-author">Автор</label>
+              <input type="text" id="source-author" name="author">
+            </div>
+            <div class="admin-field">
+              <label for="source-date">Дата источника</label>
+              <input type="text" id="source-date" name="source_date">
+            </div>
+            <div class="admin-field">
+              <label for="source-reliability">Надёжность</label>
+              <input type="number" id="source-reliability" name="reliability_score" min="1" max="10">
+            </div>
+            <div class="admin-field field-full">
+              <label for="source-citation">Цитирование</label>
+              <textarea id="source-citation" name="citation" rows="3"></textarea>
+            </div>
+            <div class="admin-field field-full">
+              <label for="source-evidence-quote">Цитата-подтверждение</label>
+              <textarea id="source-evidence-quote" name="evidence_quote" rows="3" placeholder="Фрагмент источника, подтверждающий событие"></textarea>
+            </div>
+            <div class="admin-form-actions">
+              <button type="submit" class="admin-btn admin-btn-primary">Сохранить источник</button>
+              <button type="reset" class="admin-btn">Очистить</button>
+            </div>
+          </form>
+          <div class="admin-table-wrap">
+            <table class="admin-table" aria-label="Источники">
+              <thead>
+                <tr><th>Название</th><th>Тип</th><th>URL</th><th></th></tr>
+              </thead>
+              <tbody id="sources-table-body"></tbody>
+            </table>
+          </div>
+          <p class="admin-status" id="sources-status"></p>
+        </section>
+
+        <!-- Медиа -->
+        <section class="admin-panel" id="panel-media" aria-labelledby="media-heading">
+          <h2 id="media-heading">Медиа</h2>
+          <div class="admin-toolbar">
+            <button type="button" class="admin-btn admin-btn-primary" id="btn-media-new">+ Новое медиа</button>
+            <button type="button" class="admin-btn" id="btn-media-refresh">Обновить</button>
+          </div>
+          <form id="media-form" class="admin-form-grid">
+            <h3 class="field-full admin-form-heading" id="media-form-title">Новое медиа</h3>
+            <input type="hidden" id="media-id" name="id">
+            <div class="admin-field field-full">
+              <label for="media-url">URL *</label>
+              <input type="text" id="media-url" name="url" required>
+            </div>
+            <div class="admin-field">
+              <label for="media-type">Тип</label>
+              <input type="text" id="media-type" name="type" placeholder="image, video, document">
+            </div>
+            <div class="admin-field">
+              <label for="media-credit">Автор / источник</label>
+              <input type="text" id="media-credit" name="credit">
+            </div>
+            <div class="admin-field field-full">
+              <label for="media-caption">Подпись</label>
+              <input type="text" id="media-caption" name="caption">
+            </div>
+            <div class="admin-field">
+              <label for="media-license">Лицензия</label>
+              <input type="text" id="media-license" name="license">
+            </div>
+            <div class="admin-field">
+              <label for="media-alt-text">Alt text</label>
+              <input type="text" id="media-alt-text" name="alt_text">
+            </div>
+            <div class="admin-form-actions">
+              <button type="submit" class="admin-btn admin-btn-primary">Сохранить медиа</button>
+              <button type="reset" class="admin-btn">Очистить</button>
+            </div>
+          </form>
+          <div class="admin-table-wrap">
+            <table class="admin-table" aria-label="Медиа">
+              <thead>
+                <tr><th>URL</th><th>Тип</th><th>Подпись</th><th></th></tr>
+              </thead>
+              <tbody id="media-table-body"></tbody>
+            </table>
+          </div>
+          <p class="admin-status" id="media-status"></p>
+        </section>
+
+        <!-- Теги -->
+        <section class="admin-panel" id="panel-tags" aria-labelledby="tags-heading">
+          <h2 id="tags-heading">Теги</h2>
+          <div class="admin-toolbar">
+            <button type="button" class="admin-btn admin-btn-primary" id="btn-tag-new">+ Новый тег</button>
+            <button type="button" class="admin-btn" id="btn-tag-refresh">Обновить</button>
+          </div>
+          <form id="tag-form" class="admin-form-grid">
+            <h3 class="field-full admin-form-heading" id="tag-form-title">Новый тег</h3>
+            <input type="hidden" id="tag-id" name="id">
+            <div class="admin-field">
+              <label for="tag-name">Название *</label>
+              <input type="text" id="tag-name" name="name" required>
+            </div>
+            <div class="admin-field">
+              <label for="tag-slug">Slug</label>
+              <input type="text" id="tag-slug" name="slug">
+            </div>
+            <div class="admin-field field-full">
+              <label for="tag-description">Описание</label>
+              <textarea id="tag-description" name="description" rows="3"></textarea>
+            </div>
+            <div class="admin-form-actions">
+              <button type="submit" class="admin-btn admin-btn-primary">Сохранить тег</button>
+              <button type="reset" class="admin-btn">Очистить</button>
+            </div>
+          </form>
+          <div class="admin-table-wrap">
+            <table class="admin-table" aria-label="Теги">
+              <thead>
+                <tr><th>Название</th><th>Slug</th><th>Описание</th><th></th></tr>
+              </thead>
+              <tbody id="tags-table-body"></tbody>
+            </table>
+          </div>
+          <p class="admin-status" id="tags-status"></p>
+        </section>
+
+        <!-- Группы -->
+        <section class="admin-panel" id="panel-groups" aria-labelledby="groups-heading">
+          <h2 id="groups-heading">Группы</h2>
+          <div class="admin-toolbar">
+            <button type="button" class="admin-btn admin-btn-primary" id="btn-group-new">+ Новая группа</button>
+            <button type="button" class="admin-btn" id="btn-group-refresh">Обновить</button>
+          </div>
+          <form id="group-form" class="admin-form-grid">
+            <h3 class="field-full admin-form-heading" id="group-form-title">Новая группа</h3>
+            <input type="hidden" id="group-id" name="id">
+            <div class="admin-field">
+              <label for="group-name">Название *</label>
+              <input type="text" id="group-name" name="name" required>
+            </div>
+            <div class="admin-field">
+              <label for="group-slug">Slug</label>
+              <input type="text" id="group-slug" name="slug">
+            </div>
+            <div class="admin-field field-full">
+              <label for="group-description">Описание</label>
+              <textarea id="group-description" name="description" rows="3"></textarea>
+            </div>
+            <div class="admin-form-actions">
+              <button type="submit" class="admin-btn admin-btn-primary">Сохранить группу</button>
+              <button type="reset" class="admin-btn">Очистить</button>
+            </div>
+          </form>
+          <div class="admin-table-wrap">
+            <table class="admin-table" aria-label="Группы">
+              <thead>
+                <tr><th>Название</th><th>Slug</th><th>Описание</th><th></th></tr>
+              </thead>
+              <tbody id="groups-table-body"></tbody>
+            </table>
+          </div>
+          <p class="admin-status" id="groups-status"></p>
+        </section>
+
+        <!-- Аудит -->
+        <section class="admin-panel" id="panel-audit" aria-labelledby="audit-heading">
+          <h2 id="audit-heading">Аудит изменений</h2>
+          <p>
+            Последние действия пользователей: создание, изменение и удаление событий, пользователей, источников, медиа, тегов и групп.
+          </p>
+          <div class="admin-toolbar">
+            <button type="button" class="admin-btn admin-btn-primary" id="btn-audit-refresh">Обновить аудит</button>
+          </div>
+          <div class="admin-table-wrap">
+            <table class="admin-table" aria-label="Аудит изменений">
+              <thead>
+                <tr>
+                  <th>Время</th>
+                  <th>Пользователь</th>
+                  <th>Действие</th>
+                  <th>Сущность</th>
+                  <th>ID</th>
+                  <th>Описание</th>
+                </tr>
+              </thead>
+              <tbody id="audit-table-body"></tbody>
+            </table>
+          </div>
+          <p class="admin-status" id="audit-status"></p>
+        </section>
+
+        <!-- Структура БД -->
+        <section class="admin-panel" id="panel-db-schema" aria-labelledby="db-schema-heading">
+          <h2 id="db-schema-heading">Структура БД</h2>
+          <p>
+            Структура SQLite-базы: таблицы, поля, индексы и количество записей.
+            Раздел предназначен только для просмотра.
+          </p>
+          <div class="admin-toolbar">
+            <button type="button" class="admin-btn admin-btn-primary" id="btn-db-refresh">Обновить структуру</button>
+          </div>
+          <div class="admin-db-summary" id="db-summary"></div>
+          <div class="admin-db-schema" id="db-schema"></div>
+          <p class="admin-status" id="db-status"></p>
+        </section>
+      </div>
+    </div>
+  </main>
+
+  <div class="admin-modal" id="event-source-new-modal" hidden role="dialog" aria-modal="true" aria-labelledby="event-source-new-heading">
+    <button type="button" class="admin-modal-backdrop" id="event-source-new-backdrop" aria-label="Закрыть"></button>
+    <div class="admin-modal-dialog admin-modal-dialog-narrow">
+      <div class="admin-modal-header">
+        <h2 id="event-source-new-heading">Новый источник</h2>
+        <button type="button" class="admin-btn" id="btn-event-source-new-close">Закрыть</button>
+      </div>
+      <div class="admin-field field-full">
+        <label for="event-source-new-title">Название *</label>
+        <input type="text" id="event-source-new-title" required>
+      </div>
+      <div class="admin-field field-full">
+        <label for="event-source-new-url">URL</label>
+        <input type="text" id="event-source-new-url">
+      </div>
+      <div class="admin-field field-full">
+        <label for="event-source-new-type">Тип</label>
+        <input type="text" id="event-source-new-type" placeholder="архив, книга, статья">
+      </div>
+      <div class="admin-field field-full">
+        <label for="event-source-new-evidence">Цитата-подтверждение</label>
+        <textarea id="event-source-new-evidence" rows="2"></textarea>
+      </div>
+      <div class="admin-form-actions">
+        <button type="button" class="admin-btn admin-btn-primary" id="btn-event-source-new-apply">Добавить</button>
+      </div>
+      <p class="admin-status" id="event-source-new-status"></p>
+    </div>
+  </div>
+
+  <div class="admin-modal" id="event-source-db-modal" hidden role="dialog" aria-modal="true" aria-labelledby="event-source-db-heading">
+    <button type="button" class="admin-modal-backdrop" id="event-source-db-backdrop" aria-label="Закрыть"></button>
+    <div class="admin-modal-dialog admin-modal-dialog-narrow">
+      <div class="admin-modal-header">
+        <h2 id="event-source-db-heading">Источники из базы</h2>
+        <button type="button" class="admin-btn" id="btn-event-source-db-close">Закрыть</button>
+      </div>
+      <div class="admin-field field-full">
+        <label for="event-source-db-search">Поиск</label>
+        <input type="search" id="event-source-db-search" placeholder="Название, URL, тип">
+      </div>
+      <div class="admin-media-db-list" id="event-source-db-list"></div>
+      <div class="admin-form-actions">
+        <button type="button" class="admin-btn admin-btn-primary" id="btn-event-source-db-apply">Добавить выбранные</button>
+      </div>
+      <p class="admin-status" id="event-source-db-status"></p>
+    </div>
+  </div>
+
+  <div class="admin-modal" id="event-group-new-modal" hidden role="dialog" aria-modal="true" aria-labelledby="event-group-new-heading">
+    <button type="button" class="admin-modal-backdrop" id="event-group-new-backdrop" aria-label="Закрыть"></button>
+    <div class="admin-modal-dialog admin-modal-dialog-narrow">
+      <div class="admin-modal-header">
+        <h2 id="event-group-new-heading">Новая группа</h2>
+        <button type="button" class="admin-btn" id="btn-event-group-new-close">Закрыть</button>
+      </div>
+      <div class="admin-field field-full">
+        <label for="event-group-new-name">Название *</label>
+        <input type="text" id="event-group-new-name" required>
+      </div>
+      <div class="admin-field field-full">
+        <label for="event-group-new-slug">Slug</label>
+        <input type="text" id="event-group-new-slug">
+      </div>
+      <div class="admin-form-actions">
+        <button type="button" class="admin-btn admin-btn-primary" id="btn-event-group-new-apply">Добавить</button>
+      </div>
+      <p class="admin-status" id="event-group-new-status"></p>
+    </div>
+  </div>
+
+  <div class="admin-modal" id="event-group-db-modal" hidden role="dialog" aria-modal="true" aria-labelledby="event-group-db-heading">
+    <button type="button" class="admin-modal-backdrop" id="event-group-db-backdrop" aria-label="Закрыть"></button>
+    <div class="admin-modal-dialog admin-modal-dialog-narrow">
+      <div class="admin-modal-header">
+        <h2 id="event-group-db-heading">Группы из базы</h2>
+        <button type="button" class="admin-btn" id="btn-event-group-db-close">Закрыть</button>
+      </div>
+      <div class="admin-field field-full">
+        <label for="event-group-db-search">Поиск</label>
+        <input type="search" id="event-group-db-search" placeholder="Название, slug">
+      </div>
+      <div class="admin-media-db-list" id="event-group-db-list"></div>
+      <div class="admin-form-actions">
+        <button type="button" class="admin-btn admin-btn-primary" id="btn-event-group-db-apply">Добавить выбранные</button>
+      </div>
+      <p class="admin-status" id="event-group-db-status"></p>
+    </div>
+  </div>
+
+  <div class="admin-modal" id="event-tag-new-modal" hidden role="dialog" aria-modal="true" aria-labelledby="event-tag-new-heading">
+    <button type="button" class="admin-modal-backdrop" id="event-tag-new-backdrop" aria-label="Закрыть"></button>
+    <div class="admin-modal-dialog admin-modal-dialog-narrow">
+      <div class="admin-modal-header">
+        <h2 id="event-tag-new-heading">Новый тег</h2>
+        <button type="button" class="admin-btn" id="btn-event-tag-new-close">Закрыть</button>
+      </div>
+      <div class="admin-field field-full">
+        <label for="event-tag-new-name">Название *</label>
+        <input type="text" id="event-tag-new-name" required>
+      </div>
+      <div class="admin-field field-full">
+        <label for="event-tag-new-slug">Slug</label>
+        <input type="text" id="event-tag-new-slug">
+      </div>
+      <div class="admin-form-actions">
+        <button type="button" class="admin-btn admin-btn-primary" id="btn-event-tag-new-apply">Добавить</button>
+      </div>
+      <p class="admin-status" id="event-tag-new-status"></p>
+    </div>
+  </div>
+
+  <div class="admin-modal" id="event-tag-db-modal" hidden role="dialog" aria-modal="true" aria-labelledby="event-tag-db-heading">
+    <button type="button" class="admin-modal-backdrop" id="event-tag-db-backdrop" aria-label="Закрыть"></button>
+    <div class="admin-modal-dialog admin-modal-dialog-narrow">
+      <div class="admin-modal-header">
+        <h2 id="event-tag-db-heading">Теги из базы</h2>
+        <button type="button" class="admin-btn" id="btn-event-tag-db-close">Закрыть</button>
+      </div>
+      <div class="admin-field field-full">
+        <label for="event-tag-db-search">Поиск</label>
+        <input type="search" id="event-tag-db-search" placeholder="Название, slug">
+      </div>
+      <div class="admin-media-db-list" id="event-tag-db-list"></div>
+      <div class="admin-form-actions">
+        <button type="button" class="admin-btn admin-btn-primary" id="btn-event-tag-db-apply">Добавить выбранные</button>
+      </div>
+      <p class="admin-status" id="event-tag-db-status"></p>
+    </div>
+  </div>
+
+  <div class="admin-modal" id="event-media-folder-modal" hidden role="dialog" aria-modal="true" aria-labelledby="event-media-folder-heading">
+    <button type="button" class="admin-modal-backdrop" id="event-media-folder-backdrop" aria-label="Закрыть"></button>
+    <div class="admin-modal-dialog admin-modal-dialog-narrow">
+      <div class="admin-modal-header">
+        <h2 id="event-media-folder-heading">Медиа из папки</h2>
+        <button type="button" class="admin-btn" id="btn-event-media-folder-close">Закрыть</button>
+      </div>
+      <div class="admin-field field-full">
+        <label for="event-media-folder-file">Файл</label>
+        <input type="file" id="event-media-folder-file" accept="image/*,video/*,audio/*,.pdf,.doc,.docx">
+      </div>
+      <div class="admin-image-preview empty" id="event-media-folder-preview" hidden>
+        <img id="event-media-folder-preview-img" alt="Предпросмотр">
+      </div>
+      <div class="admin-field field-full">
+        <label for="event-media-folder-caption">Подпись</label>
+        <input type="text" id="event-media-folder-caption">
+      </div>
+      <div class="admin-field field-full">
+        <label for="event-media-folder-credit">Автор / источник</label>
+        <input type="text" id="event-media-folder-credit">
+      </div>
+      <div class="admin-field field-full">
+        <label>
+          <input type="checkbox" id="event-media-folder-to-catalog" checked>
+          Добавить в справочник
+        </label>
+      </div>
+      <div class="admin-form-actions">
+        <button type="button" class="admin-btn admin-btn-primary" id="btn-event-media-folder-apply">Добавить</button>
+      </div>
+      <p class="admin-status" id="event-media-folder-status"></p>
+    </div>
+  </div>
+
+  <div class="admin-modal" id="event-media-db-modal" hidden role="dialog" aria-modal="true" aria-labelledby="event-media-db-heading">
+    <button type="button" class="admin-modal-backdrop" id="event-media-db-backdrop" aria-label="Закрыть"></button>
+    <div class="admin-modal-dialog admin-modal-dialog-narrow">
+      <div class="admin-modal-header">
+        <h2 id="event-media-db-heading">Медиа из базы</h2>
+        <button type="button" class="admin-btn" id="btn-event-media-db-close">Закрыть</button>
+      </div>
+      <div class="admin-field field-full">
+        <label for="event-media-db-search">Поиск</label>
+        <input type="search" id="event-media-db-search" placeholder="URL, подпись, тип">
+      </div>
+      <div class="admin-media-db-list" id="event-media-db-list"></div>
+      <div class="admin-form-actions">
+        <button type="button" class="admin-btn admin-btn-primary" id="btn-event-media-db-apply">Добавить выбранные</button>
+      </div>
+      <p class="admin-status" id="event-media-db-status"></p>
+    </div>
+  </div>
+
+  <div class="admin-modal" id="event-preview-modal" hidden role="dialog" aria-modal="true" aria-labelledby="event-preview-heading">
+    <button type="button" class="admin-modal-backdrop" id="event-preview-backdrop" aria-label="Закрыть предпросмотр"></button>
+    <div class="admin-modal-dialog">
+      <div class="admin-modal-header">
+        <h2 id="event-preview-heading">Предпросмотр публичной карточки</h2>
+        <button type="button" class="admin-btn" id="btn-event-preview-close">Закрыть</button>
+      </div>
+      <p class="admin-hint" id="event-preview-notice"></p>
+      <section class="fact-panel admin-event-preview" id="event-preview-panel" aria-label="Предпросмотр события">
+        <div class="fact-meta">
+          <div class="fact-title-row">
+            <div class="fact-title" id="event-preview-title">—</div>
+            <span class="fact-hashtag" id="event-preview-hashtag" hidden></span>
+          </div>
+          <div class="fact-date" id="event-preview-date">—</div>
+        </div>
+        <div class="fact-body" id="event-preview-body">
+          <p class="fact-text" id="event-preview-text">—</p>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <footer class="site-footer">
+    <div class="footer-inner">
+      © 2026 Архив истории — администрирование
+    </div>
+  </footer>
+
+  <script src="js/date-format.js"></script>
+  <script src="js/admin.js?v=groups-ref-2"></script>
+</body>
+</html>
