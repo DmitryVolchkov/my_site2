@@ -105,6 +105,11 @@
   padding: 2px 4px !important;
 }
 
+#timelinejs-embed.tl-layout-custom .tl-timemarker .tl-timemarker-text {
+  width: 100% !important;
+  float: none !important;
+}
+
 #timelinejs-embed.tl-layout-custom .tl-timemarker .tl-timemarker-text h2.tl-headline,
 #timelinejs-embed.tl-layout-custom .tl-timemarker .tl-timemarker-text h2.tl-headline p {
   font-size: 12px !important;
@@ -114,8 +119,45 @@
   line-clamp: 2 !important;
 }
 
-#timelinejs-embed.tl-layout-custom .tl-timemarker .tl-timemarker-media-container {
+/* На флажках — только текст, без превью медиа при наведении и выборе */
+#timelinejs-embed.tl-layout-custom .tl-timemarker .tl-timemarker-media-container,
+#timelinejs-embed.tl-layout-custom .tl-timemarker:hover .tl-timemarker-media-container,
+#timelinejs-embed.tl-layout-custom .tl-timemarker:focus .tl-timemarker-media-container,
+#timelinejs-embed.tl-layout-custom .tl-timemarker.tl-timemarker-active .tl-timemarker-media-container {
   display: none !important;
+  width: 0 !important;
+  max-width: 0 !important;
+  min-width: 0 !important;
+  height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+
+/* Дублирует скрытие media-container выше для медиа-иконок TimelineJS (tl-icon-*),
+   которые она рисует прямо в .tl-timemarker-content, а не только в media-container */
+#timelinejs-embed.tl-layout-custom .tl-timemarker .tl-timemarker-content .tl-timemarker-media,
+#timelinejs-embed.tl-layout-custom .tl-timemarker .tl-timemarker-content .tl-timemarker-media-container [class^="tl-icon-"],
+#timelinejs-embed.tl-layout-custom .tl-timemarker .tl-timemarker-content .tl-timemarker-media-container [class*=" tl-icon-"] {
+  display: none !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+}
+
+/* TimelineJS увеличивает высоту content-container на hover/focus/active, чтобы освободить
+   место под превью медиа; так как медиа скрыто (выше), фиксируем высоту, иначе флажок
+   визуально "прыгает" при наведении без видимой причины */
+#timelinejs-embed.tl-layout-custom .tl-timemarker:hover .tl-timemarker-content-container,
+#timelinejs-embed.tl-layout-custom .tl-timemarker:focus .tl-timemarker-content-container,
+#timelinejs-embed.tl-layout-custom .tl-timemarker.tl-timemarker-active .tl-timemarker-content-container,
+#timelinejs-embed.tl-layout-custom .tl-timemarker:hover .tl-timemarker-content-container.tl-timemarker-content-container-small,
+#timelinejs-embed.tl-layout-custom .tl-timemarker:focus .tl-timemarker-content-container.tl-timemarker-content-container-small {
+  height: var(--tl-marker-height) !important;
+  max-height: var(--tl-marker-height) !important;
+  min-height: var(--tl-marker-height) !important;
+  transition: none !important;
 }
 
 /* Слайдер на всю высоту timenav; ось (.tl-timeaxis) внутри него — у нижнего края */
@@ -145,6 +187,11 @@
   height: var(--tl-timeaxis-height) !important;
 }
 
+/* tl-timeaxis-minor раньше не перечислялся здесь: TimelineJS иногда оставляет минорные
+   деления с opacity:0 после пересчёта layout (resize/pinsOnly-проход), major при этом
+   виден — асимметрия без явной причины со стороны библиотеки */
+#timelinejs-embed.tl-layout-custom .tl-timeaxis .tl-timeaxis-content-container .tl-timeaxis-major,
+#timelinejs-embed.tl-layout-custom .tl-timeaxis .tl-timeaxis-content-container .tl-timeaxis-minor,
 #timelinejs-embed.tl-layout-custom .tl-timeaxis .tl-timeaxis-major,
 #timelinejs-embed.tl-layout-custom .tl-timeaxis .tl-timeaxis-minor {
   opacity: 1 !important;
@@ -152,7 +199,17 @@
 }
 
 #timelinejs-embed.tl-layout-custom .tl-timeaxis-major .tl-timeaxis-tick,
-#timelinejs-embed.tl-layout-custom .tl-timeaxis-major .tl-timeaxis-tick-text {
+#timelinejs-embed.tl-layout-custom .tl-timeaxis-minor .tl-timeaxis-tick,
+#timelinejs-embed.tl-layout-custom .tl-timeaxis-major .tl-timeaxis-tick-text,
+#timelinejs-embed.tl-layout-custom .tl-timeaxis-minor .tl-timeaxis-tick-text {
   opacity: 1 !important;
+  visibility: visible !important;
   color: #737373 !important;
+}
+
+/* Линии-указатели флажков могут визуально вылезать за пределы фиксированной высоты
+   маркера при узких/длинных заголовках — обрезаем */
+#timelinejs-embed.tl-layout-custom .tl-timemarker .tl-timemarker-line-left,
+#timelinejs-embed.tl-layout-custom .tl-timemarker .tl-timemarker-line-right {
+  overflow: hidden !important;
 }

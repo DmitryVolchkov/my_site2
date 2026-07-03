@@ -8,6 +8,8 @@
 
 Пошаговая инструкция для ручного ввода данных через админку: [manual-entry/README.md](manual-entry/README.md).
 
+Сбор данных из внешних интернет-источников (реестр, конвейер, пример 01.09.1939): [open-spec-data-sources.md](open-spec-data-sources.md).
+
 ## Текущая Архитектура
 
 - `server.py` запускает локальный HTTP-сервер и API.
@@ -20,6 +22,7 @@
 - `js/admin.js` отвечает за интерфейс админки, включая модальный предпросмотр публичной карточки события.
 - `js/date-format.js` (`ArchiveDateFormat`) — общая логика форматирования дат: точность, ≈, диапазон начало—окончание; используется в админке (подсказка, предпросмотр) и на главной странице.
 - `js/date-search.js` отвечает за поиск по дате и отображение выбранного факта на главной странице.
+- `js/timeline-layout.js` подгоняет DOM/CSS TimelineJS под вёрстку сайта (menubar слева, фиксированная высота, скрытие превью медиа на флажках) без замены узлов слайдера; из-за гонки инициализации TimelineJS (см. ниже) использует поллинг с ретраями и `ResizeObserver`, а не однократный вызов после события `loaded`.
 - `scripts/convert_csv_to_timelinejson.py` — устаревший автономный скрипт; **не использовать** для пересборки JSON. Актуальный путь — `server.py` → `events_to_timeline()` / `write_timeline_files()`.
 
 ## Поток Данных
@@ -35,6 +38,10 @@
 5. В публичные JSON-файлы попадают только события с `status = published` и `verification_status = verified` (фильтр `is_event_public_ready()` в `events_to_timeline()` и `events_to_scale()`; то же правило в админке — `isEventPublicReady` в `js/admin.js`).
 6. `index.html` передаёт `data/timeline_data.json` в TimelineJS.
 7. Поиск по дате использует тот же `data/timeline_data.json`.
+
+**Порядок загрузки скриптов важен:** `js/timeline-layout.js` должен быть загружен и `window.bindTimelineLayout(timeline)` вызван **до** первой отрисовки `new TL.Timeline(...)`, а не после. Если конструктор `TL.Timeline` создаётся раньше, чем подписан обработчик `timeline.on('loaded', …)`, событие `loaded` может произойти до подписки (особенно при быстрой загрузке `timeline_data.json` из кэша) — таймлайн останется без обвязки `timeline-layout.js` до первого resize. Текущий `index.html` грузит `js/vendor/timeline.js` и `js/timeline-layout.js` последовательно и только затем создаёт `TL.Timeline`.
+
+Это частный случай более общего класса гонок инициализации («отрисовка раньше, чем контейнер/событие готовы»), из-за которого `js/timeline-layout.js` держит retry-поллинг и `ResizeObserver` вместо одноразового вызова после `loaded` — см. «Уроки для нового рендера» в [open-spec-canvas-timeline.md](open-spec-canvas-timeline.md), где тот же класс багов заложен в требования к будущему Canvas-рендеру, чтобы не воспроизводить его заново.
 
 Поток для админки:
 
@@ -607,6 +614,16 @@ http://127.0.0.1:8000
 | 1 | Публичная карточка не показывает часть meta | `date-search.js` | Добавить `_category`, `_related_events` и др. по необходимости |
 | 2 | Таблица событий в админке — простая дата | `formatEventDate()` в `js/admin.js` | Использовать `ArchiveDateFormat` |
 | 3 | Предпросмотр в админке ≠ главная | `js/admin.js` | Разделение «Кратко» / «Описание», см. п. 7 улучшений |
+
+## Замена таймлайна (Canvas + API)
+
+Отдельная спецификация миграции с TimelineJS на собственный Canvas-рендер и viewport-API:
+
+**[open-spec-canvas-timeline.md](open-spec-canvas-timeline.md)**
+
+Там описаны этапы MVP → lanes/фильтры → масштаб 10M, контракт `GET /api/timeline/markers`, интеграция с `date-search.js` и критерии приёмки. Основной open spec остаётся источником правды по БД и админке; после cutover раздел «Текущая архитектура» выше нужно обновить.
+
+---
 
 ## Следующие Улучшения
 

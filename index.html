@@ -11,7 +11,7 @@
 
   <!-- TimelineJS3 (локально) -->
   <link rel="stylesheet" href="css/vendor/timeline.css">
-  <link rel="stylesheet" href="css/timeline-layout.css?v=axis-fix-3">
+  <link rel="stylesheet" href="css/timeline-layout.css?v=axis-fix-9">
   <link rel="stylesheet" href="css/date-search.css">
 
   <style>
@@ -181,8 +181,9 @@
 
       await loadScript('js/main.js');
 
-      // Загружаем TimelineJS и инициализируем из timeline_data.json
+      // Сначала скрипты, потом создание таймлайна — иначе событие loaded успевает пройти до bind
       await loadScript('js/vendor/timeline.js');
+      await loadScript('js/timeline-layout.js?v=axis-fix-9');
 
       if (window.TL && typeof window.TL.Timeline === 'function') {
         window.__timeline = new TL.Timeline('timelinejs-embed', TIMELINE_JSON_URL, {
@@ -194,7 +195,6 @@
           marker_padding: 2
         });
 
-        await loadScript('js/timeline-layout.js?v=axis-fix-3');
         if (typeof window.bindTimelineLayout === 'function') {
           window.bindTimelineLayout(window.__timeline);
         }
