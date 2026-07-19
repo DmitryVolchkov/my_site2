@@ -55,8 +55,10 @@
     </div>
 
     <div class="admin-layout">
-      <nav class="admin-tabs" aria-label="Разделы админки">
+      <nav class="admin-tabs" id="admin-tabs" aria-label="Разделы админки">
+        <button type="button" class="admin-tabs-toggle" id="btn-tabs-toggle" aria-expanded="true" title="Свернуть разделы">‹ Свернуть</button>
         <button type="button" class="admin-tab is-active" data-tab="events">Наполнение</button>
+        <button type="button" class="admin-tab" data-tab="drafts">Черновики</button>
         <button type="button" class="admin-tab" data-tab="database">База данных</button>
         <button type="button" class="admin-tab" data-tab="users">Пользователи</button>
         <button type="button" class="admin-tab" data-tab="sources">Источники</button>
@@ -308,12 +310,112 @@
               <p class="admin-hint">Коды событий через «;» — причина, следствие или аналог.</p>
             </div>
 
+            <h3 class="field-full admin-form-heading">Объединение на шкале</h3>
+            <div class="admin-field">
+              <label for="event-attached-to">Привязано к</label>
+              <input type="text" id="event-attached-to" name="attached_to" placeholder="ev-0001" list="event-attached-to-options">
+              <datalist id="event-attached-to-options"></datalist>
+            </div>
+            <div class="admin-field">
+              <label for="event-attachment-order">Порядок в объединении</label>
+              <input type="number" id="event-attachment-order" name="attachment_order" min="0">
+            </div>
+            <p class="admin-hint field-full" id="event-attachment-hint" aria-live="polite">Если заполнено — это событие показывается одной точкой шкалы вместе с основным. Дата должна совпадать с основным событием, иначе сохранить не получится.</p>
+            <div class="admin-field field-full">
+              <label for="event-composite-headline">Объединяющий заголовок (для основного события)</label>
+              <input type="text" id="event-composite-headline" name="composite_headline" placeholder="Общий заголовок для всех привязанных событий">
+              <label class="admin-check-pill" for="event-use-composite-headline" title="Показывать вместо обычного заголовка на шкале и в карточке">
+                <input type="checkbox" id="event-use-composite-headline" name="use_composite_headline" value="1">
+                <span>Использовать вместо заголовка</span>
+              </label>
+              <p class="admin-hint">Действует, только если к этому событию привязано хотя бы одно другое. Без галочки показывается обычный заголовок.</p>
+            </div>
+
             <div class="admin-form-actions">
               <button type="submit" class="admin-btn admin-btn-primary">Сохранить событие</button>
               <button type="reset" class="admin-btn">Очистить форму</button>
             </div>
           </form>
           <p class="admin-status" id="events-status"></p>
+        </section>
+
+        <!-- Черновики -->
+        <section class="admin-panel" id="panel-drafts" aria-labelledby="drafts-heading">
+          <h2 id="drafts-heading">Черновики</h2>
+          <p class="admin-hint">Промежуточный этап: соберите сюда найденные события и источники, проверьте и поправьте, и только потом нажимайте «Импортировать» — тогда запись попадёт в «Наполнение» со статусом «Черновик».</p>
+          <div class="admin-toolbar">
+            <button type="button" class="admin-btn admin-btn-primary" id="btn-draft-batch-new">+ Новый лист</button>
+            <button type="button" class="admin-btn" id="btn-draft-refresh">Обновить</button>
+          </div>
+
+          <form id="draft-batch-form" class="draft-batch-form" hidden>
+            <div class="admin-field">
+              <label for="draft-batch-title">Название листа</label>
+              <input type="text" id="draft-batch-title" name="title" placeholder="Напр.: 1 сентября 1939" required>
+            </div>
+            <div class="admin-field">
+              <label for="draft-batch-date">Целевая дата</label>
+              <input type="text" id="draft-batch-date" name="target_date" placeholder="1939-09-01">
+            </div>
+            <div class="admin-form-actions">
+              <button type="submit" class="admin-btn admin-btn-primary">Создать лист</button>
+              <button type="button" class="admin-btn" id="btn-draft-batch-cancel">Отмена</button>
+            </div>
+          </form>
+
+          <div class="draft-layout">
+            <aside class="draft-sheets-panel">
+              <div class="draft-sheets-filters">
+                <select id="draft-filter-year" title="Фильтр по году">
+                  <option value="">Год: все</option>
+                </select>
+                <select id="draft-filter-month" title="Фильтр по месяцу">
+                  <option value="">Месяц: все</option>
+                </select>
+                <select id="draft-filter-day" title="Фильтр по дню">
+                  <option value="">День: все</option>
+                </select>
+                <button type="button" class="admin-btn" id="btn-draft-filter-reset">Сбросить</button>
+              </div>
+              <ul class="draft-sheets-list" id="draft-sheets-list" aria-label="Листы черновиков"></ul>
+            </aside>
+
+            <div class="draft-main">
+              <div class="draft-toolbar" id="draft-batch-toolbar" hidden>
+                <button type="button" class="admin-btn admin-btn-danger" id="btn-draft-batch-delete">Удалить лист</button>
+                <button type="button" class="admin-btn" id="btn-draft-row-new">+ Строка</button>
+              </div>
+
+              <div class="bulk-toolbar" id="draft-bulk-toolbar" hidden>
+                <span class="bulk-toolbar-count" id="draft-bulk-count"></span>
+                <button type="button" class="admin-btn admin-btn-primary" id="btn-draft-bulk-import">Импортировать выбранные</button>
+              </div>
+
+              <div class="admin-table-wrap draft-grid-wrap">
+                <table class="admin-table draft-grid" aria-label="Черновики событий" id="draft-grid-table">
+                  <thead>
+                    <tr>
+                      <th class="select-col"><input type="checkbox" id="draft-select-all" title="Выбрать все"></th>
+                      <th></th>
+                      <th>Заголовок</th>
+                      <th>Год</th>
+                      <th>Мес.</th>
+                      <th>День</th>
+                      <th>Точность</th>
+                      <th>Тип</th>
+                      <th>Домен</th>
+                      <th>Страна</th>
+                      <th>Источники</th>
+                      <th>Статус</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody id="draft-grid-body"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+          <p class="admin-status" id="drafts-status"></p>
         </section>
 
         <!-- База данных (события) -->
@@ -324,16 +426,30 @@
             <button type="button" class="admin-btn admin-btn-primary" id="btn-reload-csv">Обновить из БД</button>
             <button type="button" class="admin-btn" id="btn-export-csv">Скачать CSV-копию</button>
           </div>
+
+          <div class="bulk-toolbar" id="events-bulk-toolbar" hidden>
+            <span class="bulk-toolbar-count" id="events-bulk-count"></span>
+            <div class="bulk-toolbar-attach">
+              <input type="text" id="events-bulk-attach-target" placeholder="ev-0001" list="events-bulk-attach-options">
+              <datalist id="events-bulk-attach-options"></datalist>
+              <button type="button" class="admin-btn" id="btn-events-bulk-attach">Назначить привязку</button>
+            </div>
+            <button type="button" class="admin-btn" id="btn-events-bulk-verify">Пометить проверенным</button>
+            <button type="button" class="admin-btn admin-btn-primary" id="btn-events-bulk-publish">Опубликовать</button>
+          </div>
+
           <div class="admin-table-wrap">
             <table class="admin-table" aria-label="Список событий">
               <thead>
                 <tr>
+                  <th class="select-col"><input type="checkbox" id="events-select-all" title="Выбрать все"></th>
                   <th>Код</th>
                   <th>Дата</th>
                   <th>Заголовок</th>
                   <th>Группа</th>
                   <th>Статус</th>
                   <th>Медиа</th>
+                  <th>Привязка</th>
                   <th></th>
                 </tr>
               </thead>

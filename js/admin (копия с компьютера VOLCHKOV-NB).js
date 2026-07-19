@@ -50,10 +50,7 @@
     draftBatches: [],
     draftEvents: [],
     activeDraftBatchId: null,
-    expandedDraftEventIds: {},
-    selectedDraftIds: {},
-    selectedEventIds: {},
-    draftFilters: { year: '', month: '', day: '' }
+    expandedDraftEventIds: {}
   };
 
   function $(id) {
@@ -171,18 +168,6 @@
     var r = await fetch(API_EVENTS_URL + '/' + encodeURIComponent(id), { method: 'DELETE' });
     var data = await r.json().catch(function () { return {}; });
     if (!r.ok) throw new Error(data.error || 'Не удалось удалить событие.');
-  }
-
-  async function bulkEventsAction(kind, ids, extra) {
-    var body = Object.assign({ ids: ids }, extra || {});
-    var r = await fetch(API_EVENTS_URL + '/bulk/' + kind, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body)
-    });
-    var data = await r.json().catch(function () { return {}; });
-    if (!r.ok) throw new Error(data.error || 'Не удалось выполнить массовое действие.');
-    return data.results || [];
   }
 
   async function loadSessionFromServer() {
@@ -404,73 +389,23 @@
     }).join('');
   }
 
-  function parseDraftBatchDate(text) {
-    var m = /^(\d{4})(?:-(\d{2})(?:-(\d{2}))?)?/.exec((text || '').trim());
-    if (!m) return null;
-    return { year: m[1], month: m[2] || '', day: m[3] || '' };
-  }
-
-  function draftBatchRowCounts(batchId) {
-    var rows = state.draftEvents.filter(function (e) { return e.batch_id === batchId; });
-    var imported = rows.filter(function (e) { return e.import_status === 'imported'; }).length;
-    return { total: rows.length, imported: imported };
-  }
-
-  function populateSelectOptions(select, values, placeholder) {
-    if (!select) return;
-    var previous = select.value;
-    select.innerHTML = '<option value="">' + placeholder + '</option>' +
-      values.map(function (v) { return '<option value="' + escapeAttr(v) + '">' + escapeHtml(v) + '</option>'; }).join('');
-    if (values.indexOf(previous) !== -1) select.value = previous;
-  }
-
-  function draftBatchMatchesFilters(batch) {
-    var f = state.draftFilters;
-    if (!f.year && !f.month && !f.day) return true;
-    var parsed = parseDraftBatchDate(batch.target_date);
-    if (!parsed) return false;
-    if (f.year && parsed.year !== f.year) return false;
-    if (f.month && parsed.month !== f.month) return false;
-    if (f.day && parsed.day !== f.day) return false;
-    return true;
-  }
-
-  function renderDraftSheetsList() {
-    var list = $('draft-sheets-list');
+  function renderDraftTabs() {
+    var wrap = $('draft-sheet-tabs');
     var toolbar = $('draft-batch-toolbar');
-    if (!list) return;
-
-    var years = {};
-    state.draftBatches.forEach(function (b) {
-      var parsed = parseDraftBatchDate(b.target_date);
-      if (parsed) years[parsed.year] = true;
-    });
-    populateSelectOptions($('draft-filter-year'), Object.keys(years).sort(), 'Год: все');
-
+    if (!wrap) return;
     if (!state.draftBatches.length) {
-      list.innerHTML = '<li class="draft-sheet-item-empty">Пока нет ни одного листа — нажмите «+ Новый лист».</li>';
+      wrap.innerHTML = '<span class="draft-sheet-tab-empty">Пока нет ни одного листа — нажмите «+ Новый лист».</span>';
       if (toolbar) toolbar.hidden = true;
       return;
     }
     if (!state.activeDraftBatchId || !state.draftBatches.some(function (b) { return b.id === state.activeDraftBatchId; })) {
       state.activeDraftBatchId = state.draftBatches[0].id;
     }
-
-    var visible = state.draftBatches.filter(draftBatchMatchesFilters);
-    if (!visible.length) {
-      list.innerHTML = '<li class="draft-sheet-item-empty">Нет листов, подходящих под фильтр.</li>';
-    } else {
-      list.innerHTML = visible.map(function (b) {
-        var counts = draftBatchRowCounts(b.id);
-        var meta = (b.target_date || 'без даты') + (counts.total ? ' · ' + counts.imported + '/' + counts.total + ' импорт.' : '');
-        return '<li>' +
-          '<button type="button" class="draft-sheet-item' + (b.id === state.activeDraftBatchId ? ' is-active' : '') +
-          '" data-action="select-batch" data-id="' + escapeAttr(b.id) + '">' +
-          '<span class="draft-sheet-item-title">' + escapeHtml(b.title) + '</span>' +
-          '<span class="draft-sheet-item-meta">' + escapeHtml(meta) + '</span>' +
-          '</button></li>';
-      }).join('');
-    }
+    wrap.innerHTML = state.draftBatches.map(function (b) {
+      var label = b.title + (b.target_date ? ' (' + b.target_date + ')' : '');
+      return '<button type="button" class="draft-sheet-tab' + (b.id === state.activeDraftBatchId ? ' is-active' : '') +
+        '" data-action="select-batch" data-id="' + escapeAttr(b.id) + '">' + escapeHtml(label) + '</button>';
+    }).join('');
     if (toolbar) toolbar.hidden = false;
   }
 
@@ -485,25 +420,17 @@
     if (!tbody) return;
     var rows = draftEventsForActiveBatch();
     if (!state.activeDraftBatchId || !rows.length) {
-      tbody.innerHTML = '<tr><td colspan="13" class="draft-sheet-item-empty">' +
+      tbody.innerHTML = '<tr><td colspan="12" class="draft-sheet-tab-empty">' +
         (state.activeDraftBatchId ? 'На этом листе пока нет строк — нажмите «+ Строка».' : 'Выберите или создайте лист.') +
         '</td></tr>';
-      renderDraftBulkToolbar();
       return;
     }
-    var rowIds = {};
-    rows.forEach(function (ev) { if (ev.import_status !== 'imported') rowIds[ev.id] = true; });
-    Object.keys(state.selectedDraftIds).forEach(function (id) {
-      if (!rowIds[id]) delete state.selectedDraftIds[id];
-    });
     var html = '';
     rows.forEach(function (ev) {
       var imported = ev.import_status === 'imported';
       var sourceCount = (ev.sources || []).length;
       var expanded = !!state.expandedDraftEventIds[ev.id];
-      var checked = !!state.selectedDraftIds[ev.id];
       html += '<tr class="draft-row' + (imported ? ' is-imported' : '') + '" data-draft-id="' + escapeAttr(ev.id) + '">' +
-        '<td class="select-col"><input type="checkbox" class="draft-row-select" data-id="' + escapeAttr(ev.id) + '"' + (checked ? ' checked' : '') + (imported ? ' disabled' : '') + '></td>' +
         '<td><button type="button" class="draft-sources-toggle" data-action="toggle-sources" data-id="' + escapeAttr(ev.id) + '">' + (expanded ? '▾' : '▸') + '</button></td>' +
         '<td><input type="text" class="draft-field-headline" data-field="headline" data-draft-id="' + escapeAttr(ev.id) + '" value="' + escapeAttr(ev.headline || '') + '"' + (imported ? ' disabled' : '') + '></td>' +
         '<td><input type="number" class="draft-field-year" data-field="start_year" data-draft-id="' + escapeAttr(ev.id) + '" value="' + escapeAttr(ev.start_year || '') + '"' + (imported ? ' disabled' : '') + '></td>' +
@@ -521,29 +448,12 @@
         '</td>' +
         '</tr>';
       if (expanded) {
-        html += '<tr class="draft-sources-row" data-draft-sources-for="' + escapeAttr(ev.id) + '"><td colspan="13">' +
+        html += '<tr class="draft-sources-row" data-draft-sources-for="' + escapeAttr(ev.id) + '"><td colspan="12">' +
           renderDraftSourcesPanel(ev) +
           '</td></tr>';
       }
     });
     tbody.innerHTML = html;
-    var selectAll = $('draft-select-all');
-    var selectable = draftSelectableEvents();
-    if (selectAll) selectAll.checked = selectable.length > 0 && selectable.every(function (ev) { return !!state.selectedDraftIds[ev.id]; });
-    renderDraftBulkToolbar();
-  }
-
-  function draftSelectableEvents() {
-    return draftEventsForActiveBatch().filter(function (ev) { return ev.import_status !== 'imported'; });
-  }
-
-  function renderDraftBulkToolbar() {
-    var toolbar = $('draft-bulk-toolbar');
-    var count = $('draft-bulk-count');
-    if (!toolbar || !count) return;
-    var selected = Object.keys(state.selectedDraftIds).filter(function (id) { return state.selectedDraftIds[id]; });
-    toolbar.hidden = selected.length === 0;
-    count.textContent = 'Выбрано: ' + selected.length;
   }
 
   function renderDraftSourcesPanel(ev) {
@@ -574,7 +484,7 @@
   }
 
   function renderDrafts() {
-    renderDraftSheetsList();
+    renderDraftTabs();
     renderDraftGrid();
   }
 
@@ -663,31 +573,6 @@
     }
   }
 
-  async function importDraftBulk() {
-    var ids = Object.keys(state.selectedDraftIds).filter(function (id) { return state.selectedDraftIds[id]; });
-    if (!ids.length) return;
-    if (!confirm('Импортировать выбранные строки (' + ids.length + ') в основную БД событий?')) return;
-    var status = $('drafts-status');
-    var okCount = 0;
-    var errors = [];
-    for (var i = 0; i < ids.length; i++) {
-      try {
-        await importDraftEventOnServer(ids[i]);
-        okCount++;
-      } catch (err) {
-        errors.push(ids[i] + ' — ' + (err.message || 'ошибка'));
-      }
-    }
-    var fresh = await loadDraftsFromServer();
-    state.draftBatches = fresh.batches;
-    state.draftEvents = fresh.events;
-    state.selectedDraftIds = {};
-    renderDrafts();
-    var summary = 'Импортировано ' + okCount + ' из ' + ids.length + '.';
-    if (errors.length) summary += ' Ошибки: ' + errors.join('; ');
-    setStatus(status, summary, errors.length ? 'error' : 'ok');
-  }
-
   function toggleDraftBatchForm(show) {
     var form = $('draft-batch-form');
     if (!form) return;
@@ -732,7 +617,7 @@
   }
 
   function bindDrafts() {
-    var sheetsList = $('draft-sheets-list');
+    var tabsWrap = $('draft-sheet-tabs');
     var gridBody = $('draft-grid-body');
     var newBatchBtn = $('btn-draft-batch-new');
     var refreshBtn = $('btn-draft-refresh');
@@ -740,31 +625,6 @@
     var newRowBtn = $('btn-draft-row-new');
     var batchForm = $('draft-batch-form');
     var batchCancelBtn = $('btn-draft-batch-cancel');
-
-    populateSelectOptions($('draft-filter-month'), ['01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12'], 'Месяц: все');
-    populateSelectOptions($('draft-filter-day'), Array.from({ length: 31 }, function (_, i) { return String(i + 1).padStart(2, '0'); }), 'День: все');
-
-    ['draft-filter-year', 'draft-filter-month', 'draft-filter-day'].forEach(function (id) {
-      var key = id.replace('draft-filter-', '');
-      var select = $(id);
-      if (!select) return;
-      select.addEventListener('change', function (e) {
-        state.draftFilters[key] = e.target.value;
-        renderDraftSheetsList();
-      });
-    });
-
-    var filterResetBtn = $('btn-draft-filter-reset');
-    if (filterResetBtn) {
-      filterResetBtn.addEventListener('click', function () {
-        state.draftFilters = { year: '', month: '', day: '' };
-        ['draft-filter-year', 'draft-filter-month', 'draft-filter-day'].forEach(function (id) {
-          var select = $(id);
-          if (select) select.value = '';
-        });
-        renderDraftSheetsList();
-      });
-    }
 
     if (newBatchBtn) newBatchBtn.addEventListener('click', function () { toggleDraftBatchForm(true); });
     if (batchCancelBtn) batchCancelBtn.addEventListener('click', function () { toggleDraftBatchForm(false); });
@@ -785,30 +645,14 @@
       });
     }
 
-    if (sheetsList) {
-      sheetsList.addEventListener('click', function (e) {
+    if (tabsWrap) {
+      tabsWrap.addEventListener('click', function (e) {
         var btn = e.target.closest('[data-action="select-batch"]');
         if (!btn) return;
         state.activeDraftBatchId = btn.dataset.id;
-        state.selectedDraftIds = {};
         renderDrafts();
       });
     }
-
-    var selectAll = $('draft-select-all');
-    if (selectAll) {
-      selectAll.addEventListener('change', function (e) {
-        var checked = e.target.checked;
-        draftSelectableEvents().forEach(function (ev) {
-          if (checked) state.selectedDraftIds[ev.id] = true;
-          else delete state.selectedDraftIds[ev.id];
-        });
-        renderDraftGrid();
-      });
-    }
-
-    var bulkImportBtn = $('btn-draft-bulk-import');
-    if (bulkImportBtn) bulkImportBtn.addEventListener('click', importDraftBulk);
 
     if (gridBody) {
       gridBody.addEventListener('focusout', function (e) {
@@ -817,18 +661,6 @@
         }
       });
       gridBody.addEventListener('change', function (e) {
-        if (e.target.classList.contains('draft-row-select')) {
-          var id = e.target.dataset.id;
-          if (e.target.checked) state.selectedDraftIds[id] = true;
-          else delete state.selectedDraftIds[id];
-          renderDraftBulkToolbar();
-          var selectAllBox = $('draft-select-all');
-          if (selectAllBox) {
-            var selectable = draftSelectableEvents();
-            selectAllBox.checked = selectable.length > 0 && selectable.every(function (ev) { return !!state.selectedDraftIds[ev.id]; });
-          }
-          return;
-        }
         if (e.target.tagName === 'SELECT') {
           handleDraftFieldChange(e.target);
         }
@@ -992,7 +824,7 @@
   function resolveEventGroupIds(ev) {
     if (ev.group_ids && ev.group_ids.length) return ev.group_ids.slice();
     var groupText = (ev.group || '').trim();
-    if (!groupText) return [];
+    if (!groupText) return defaultGroupIds();
     var match = state.groups.find(function (g) {
       return (g.name || '').trim() === groupText || (g.slug || '').trim() === groupText;
     });
@@ -1896,25 +1728,17 @@
     var tbody = $('events-table-body');
     if (!tbody) return;
     tbody.innerHTML = '';
-    var idsNow = {};
-    state.events.forEach(function (ev) { idsNow[ev.id] = true; });
-    Object.keys(state.selectedEventIds).forEach(function (id) {
-      if (!idsNow[id]) delete state.selectedEventIds[id];
-    });
-    var bulkAvailable = canManageUsers();
     state.events.forEach(function (ev) {
       var tr = document.createElement('tr');
       var childCount = attachedChildrenCount(ev.id);
       var attachmentCell = ev.attached_to
         ? '→ ' + escapeHtml(ev.attached_to)
         : (childCount ? '+' + childCount + ' привязано' : '—');
-      var checked = !!state.selectedEventIds[ev.id];
       tr.innerHTML =
-        (bulkAvailable ? '<td class="select-col"><input type="checkbox" class="events-row-select" data-id="' + escapeAttr(ev.id) + '"' + (checked ? ' checked' : '') + '></td>' : '') +
         '<td>' + escapeHtml(ev.id) + '</td>' +
         '<td>' + escapeHtml(formatEventDate(ev)) + '</td>' +
         '<td>' + escapeHtml(ev.headline || '') + '</td>' +
-        '<td>' + escapeHtml((ev.group_items && ev.group_items.length ? ev.group_items.map(function (g) { return g.name || g.id; }).join(', ') : (ev.group || ''))) + '</td>' +
+        '<td>' + escapeHtml(ev.group || '') + '</td>' +
         '<td>' +
         '<span class="admin-status-badge status-' + escapeAttr(ev.status || 'draft') + '">' + statusLabel(ev.status) + '</span> ' +
         '<span class="admin-status-badge verification-' + escapeAttr(ev.verification_status || 'unconfirmed') + '">' + verificationLabel(ev.verification_status) + '</span>' +
@@ -1928,40 +1752,6 @@
       tbody.appendChild(tr);
     });
     refreshEventAttachedToOptions();
-    var selectAllHeader = $('events-select-all');
-    if (selectAllHeader) {
-      selectAllHeader.closest('th').hidden = !bulkAvailable;
-      selectAllHeader.checked = bulkAvailable && state.events.length > 0 && state.events.every(function (ev) { return !!state.selectedEventIds[ev.id]; });
-    }
-    renderEventsBulkToolbar();
-  }
-
-  function renderEventsBulkToolbar() {
-    var toolbar = $('events-bulk-toolbar');
-    var count = $('events-bulk-count');
-    if (!toolbar || !count) return;
-    var selected = Object.keys(state.selectedEventIds).filter(function (id) { return state.selectedEventIds[id]; });
-    toolbar.hidden = !canManageUsers() || selected.length === 0;
-    count.textContent = 'Выбрано: ' + selected.length;
-  }
-
-  async function runEventsBulkAction(kind, extra, confirmMessage) {
-    var status = $('events-db-status');
-    var ids = Object.keys(state.selectedEventIds).filter(function (id) { return state.selectedEventIds[id]; });
-    if (!ids.length) return;
-    if (!confirm(confirmMessage.replace('%d', ids.length))) return;
-    try {
-      var results = await bulkEventsAction(kind, ids, extra);
-      var okCount = results.filter(function (r) { return r.ok; }).length;
-      var errors = results.filter(function (r) { return !r.ok; }).map(function (r) { return r.id + ' — ' + r.error; });
-      state.events = await loadEventsFromServer();
-      renderEventsTable();
-      var summary = 'Готово: ' + okCount + ' из ' + ids.length + '.';
-      if (errors.length) summary += ' Ошибки: ' + errors.join('; ');
-      setStatus(status, summary, errors.length ? 'error' : 'ok');
-    } catch (err) {
-      setStatus(status, err.message || 'Не удалось выполнить массовое действие.', 'error');
-    }
   }
 
   function renderUsersTable() {
@@ -2406,22 +2196,18 @@
     }
   }
 
-  function fillAttachedToDatalist(list, excludeId) {
+  function refreshEventAttachedToOptions() {
+    var list = $('event-attached-to-options');
     if (!list) return;
     list.innerHTML = '';
     state.events.forEach(function (ev) {
-      if (ev.id === excludeId) return;
+      if (ev.id === state.editingEventId) return;
       if (ev.attached_to) return;
       var option = document.createElement('option');
       option.value = ev.id;
       option.label = ev.id + ' — ' + (ev.headline || '');
       list.appendChild(option);
     });
-  }
-
-  function refreshEventAttachedToOptions() {
-    fillAttachedToDatalist($('event-attached-to-options'), state.editingEventId);
-    fillAttachedToDatalist($('events-bulk-attach-options'), null);
   }
 
   function attachedChildrenCount(eventId) {
@@ -2441,7 +2227,7 @@
     var target = state.events.find(function (ev) { return ev.id === attachedTo; });
     if (!target) {
       hint.textContent = 'Событие с таким кодом не найдено в загруженном списке — проверьте код перед сохранением.';
-      hint.className = 'admin-hint admin-event-preview-notice field-full is-draft';
+      hint.className = 'admin-hint field-full is-draft';
       return;
     }
     var form = readEventForm();
@@ -2450,7 +2236,7 @@
       && (target.start_day || '') === (form.start_day || '');
     if (!sameDate) {
       hint.textContent = 'Дата не совпадает с «' + (target.headline || target.id) + '» — сервер откажет в сохранении, пока даты не совпадут.';
-      hint.className = 'admin-hint admin-event-preview-notice field-full is-draft';
+      hint.className = 'admin-hint field-full is-draft';
       return;
     }
     hint.textContent = 'Будет показано одной точкой вместе с «' + (target.headline || target.id) + '».';
@@ -2764,7 +2550,7 @@
       } else {
         var childCount = state.editingEventId ? attachedChildrenCount(state.editingEventId) : 0;
         if (childCount) {
-          notice.textContent += ' К этому событию привязано ещё ' + childCount + ' (' + childCount + eventsWordAdmin(childCount) + ') — предпросмотр здесь показывает только текущую форму, полная объединённая карточка видна на самом сайте.';
+          notice.textContent += ' К этому событию привязано ещё событий: ' + childCount + ' — предпросмотр здесь показывает только текущую форму, полная объединённая карточка видна на самом сайте.';
         }
       }
     }
@@ -2989,58 +2775,6 @@
     });
   }
 
-  function sizeAdminTabsToContent() {
-    var nav = $('admin-tabs');
-    if (!nav) return;
-    if (window.innerWidth <= 900) {
-      nav.style.width = '';
-      return;
-    }
-    var items = Array.prototype.slice.call(nav.querySelectorAll('.admin-tab, .admin-tabs-toggle'));
-    items.forEach(function (el) {
-      el.style.width = 'auto';
-      el.style.alignSelf = 'flex-start';
-    });
-    var max = 0;
-    items.forEach(function (el) {
-      if (el.offsetParent === null) return;
-      max = Math.max(max, el.getBoundingClientRect().width);
-    });
-    items.forEach(function (el) {
-      el.style.width = '100%';
-      el.style.alignSelf = '';
-    });
-    if (max > 0) nav.style.width = Math.ceil(max) + 'px';
-  }
-
-  function applyTabsCollapsed(collapsed) {
-    var nav = $('admin-tabs');
-    var btn = $('btn-tabs-toggle');
-    if (!nav || !btn) return;
-    nav.classList.toggle('is-collapsed', collapsed);
-    btn.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
-    btn.textContent = collapsed ? '›' : '‹ Свернуть';
-    btn.title = collapsed ? 'Развернуть разделы' : 'Свернуть разделы';
-    sizeAdminTabsToContent();
-  }
-
-  function bindTabsToggle() {
-    var btn = $('btn-tabs-toggle');
-    if (!btn) return;
-    var collapsed = localStorage.getItem('adminTabsCollapsed') === '1';
-    applyTabsCollapsed(collapsed);
-    btn.addEventListener('click', function () {
-      collapsed = !collapsed;
-      localStorage.setItem('adminTabsCollapsed', collapsed ? '1' : '0');
-      applyTabsCollapsed(collapsed);
-    });
-    var resizeTimer;
-    window.addEventListener('resize', function () {
-      clearTimeout(resizeTimer);
-      resizeTimer = setTimeout(sizeAdminTabsToContent, 150);
-    });
-  }
-
   function bindLogin() {
     var form = $('login-form');
     if (!form) return;
@@ -3245,46 +2979,6 @@
         renderEventsTable();
         setStatus(dbStatus, 'Событие удалено из БД.', 'ok');
       }
-    });
-
-    $('events-table-body') && $('events-table-body').addEventListener('change', function (e) {
-      if (!e.target.classList.contains('events-row-select')) return;
-      var id = e.target.dataset.id;
-      if (e.target.checked) state.selectedEventIds[id] = true;
-      else delete state.selectedEventIds[id];
-      renderEventsBulkToolbar();
-      var selectAllHeader = $('events-select-all');
-      if (selectAllHeader) {
-        selectAllHeader.checked = state.events.length > 0 && state.events.every(function (ev) { return !!state.selectedEventIds[ev.id]; });
-      }
-    });
-
-    $('events-select-all') && $('events-select-all').addEventListener('change', function (e) {
-      var checked = e.target.checked;
-      state.events.forEach(function (ev) {
-        if (checked) state.selectedEventIds[ev.id] = true;
-        else delete state.selectedEventIds[ev.id];
-      });
-      renderEventsTable();
-    });
-
-    $('btn-events-bulk-attach') && $('btn-events-bulk-attach').addEventListener('click', function () {
-      var target = ($('events-bulk-attach-target').value || '').trim();
-      if (!target) {
-        setStatus(dbStatus, 'Укажите код целевого события.', 'error');
-        return;
-      }
-      runEventsBulkAction('attach', { attached_to: target }, 'Привязать выбранные события (%d) к «' + target + '»?').then(function () {
-        $('events-bulk-attach-target').value = '';
-      });
-    });
-
-    $('btn-events-bulk-verify') && $('btn-events-bulk-verify').addEventListener('click', function () {
-      runEventsBulkAction('verify', {}, 'Пометить выбранные события (%d) проверенными?');
-    });
-
-    $('btn-events-bulk-publish') && $('btn-events-bulk-publish').addEventListener('click', function () {
-      runEventsBulkAction('publish', {}, 'Опубликовать выбранные события (%d)?');
     });
   }
 
@@ -3570,12 +3264,10 @@
     clearTagForm();
     clearGroupForm();
     setUsersPanelAccess();
-    sizeAdminTabsToContent();
   }
 
   async function init() {
     bindTabs();
-    bindTabsToggle();
     bindPasswordToggle();
     bindLogin();
     bindLogout();

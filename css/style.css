@@ -215,6 +215,10 @@ body {
     display: none;
 }
 
+.fact-full.is-collapsed .fact-attached-full {
+    display: none;
+}
+
 .fact-full-toggle {
     display: inline-block;
     margin-top: 8px;
@@ -320,4 +324,44 @@ body {
     color: #1a2a3a;
     font-size: 13px;
     font-weight: 600;
+}
+
+/* Вторичные (привязанные) события внутри объединённой карточки */
+.fact-attached {
+    margin-top: 14px;
+    padding-top: 14px;
+    border-top: 1px dashed #ddd;
+}
+
+.fact-summary-block .fact-attached-summary:first-of-type,
+.fact-full > .fact-attached-full:first-of-type {
+    margin-top: 14px;
+}
+
+.fact-attached-heading {
+    margin: 0 0 4px;
+    font-size: 14px;
+    font-weight: 700;
+    color: #1a2a3a;
+}
+
+.fact-attached-related {
+    margin-top: 18px;
+    padding-top: 16px;
+    border-top: 1px solid #ddd;
+}
+
+/* Доп. карточки для случайно совпавших по дате, но не объединённых событий */
+.fact-extra-matches {
+    max-width: 1000px;
+    margin: 16px auto 0;
+    padding: 0 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.fact-extra-matches .fact-card {
+    margin: 0;
+    padding: 0 20px;
 }

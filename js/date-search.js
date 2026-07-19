@@ -281,11 +281,7 @@
 
 
 
-  function bindFactFullToggle() {
-
-    var fullEl = document.getElementById('fact-full');
-
-    var toggleEl = document.getElementById('fact-full-toggle');
+  function bindFactFullToggleEl(fullEl, toggleEl) {
 
     if (!fullEl || !toggleEl || toggleEl.dataset.bound === '1') return;
 
@@ -303,7 +299,15 @@
 
 
 
-  function updateFactPanel(ev) {
+  function bindFactFullToggle() {
+
+    bindFactFullToggleEl(document.getElementById('fact-full'), document.getElementById('fact-full-toggle'));
+
+  }
+
+
+
+  function gatherMainFactRefs() {
 
     var titleEl = document.querySelector('.fact-panel .fact-title');
 
@@ -325,36 +329,58 @@
 
     var bodyEl = document.querySelector('.fact-panel .fact-body');
 
+    if (!titleEl || !dateEl || !summaryBlockEl || !summaryEl || !fullEl || !fullTextEl || !mediaEl || !toggleEl || !bodyEl) {
+      return null;
+    }
 
-    if (!titleEl || !dateEl || !summaryBlockEl || !summaryEl || !fullEl || !fullTextEl || !mediaEl || !toggleEl || !bodyEl) return;
+    return {
+      titleEl: titleEl,
+      hashtagEl: hashtagEl,
+      dateEl: dateEl,
+      summaryBlockEl: summaryBlockEl,
+      summaryEl: summaryEl,
+      fullEl: fullEl,
+      fullTextEl: fullTextEl,
+      mediaEl: mediaEl,
+      toggleEl: toggleEl,
+      bodyEl: bodyEl
+    };
 
-    bindFactFullToggle();
+  }
 
-    var oldRelated = bodyEl.querySelector('.fact-related');
+
+
+  function renderFactCard(refs, ev) {
+
+    bindFactFullToggleEl(refs.fullEl, refs.toggleEl);
+
+    var oldRelated = refs.bodyEl.querySelector('.fact-related:not(.fact-attached)');
 
     if (oldRelated) oldRelated.remove();
 
-    renderFactMedia(mediaEl, null);
+    renderAttachedMembers(refs, {});
+
+    renderFactMedia(refs.mediaEl, null);
 
 
 
     if (!ev) {
 
-      titleEl.textContent = 'Событие не найдено';
+      refs.titleEl.textContent = 'Событие не найдено';
 
-      if (hashtagEl) {
-        hashtagEl.textContent = '';
-        hashtagEl.hidden = true;
+      if (refs.hashtagEl) {
+        refs.hashtagEl.textContent = '';
+        refs.hashtagEl.hidden = true;
       }
 
-      dateEl.textContent = '—';
+      refs.dateEl.textContent = '—';
 
-      summaryBlockEl.hidden = true;
-      summaryEl.textContent = '';
-      fullEl.hidden = false;
-      fullTextEl.textContent = 'По выбранной дате записей в архиве нет.';
-      toggleEl.hidden = true;
-      setFactFullExpanded(fullEl, toggleEl, true);
+      refs.summaryBlockEl.hidden = true;
+      refs.summaryEl.textContent = '';
+      refs.fullEl.hidden = false;
+      refs.fullTextEl.textContent = 'По выбранной дате записей в архиве нет.';
+      refs.toggleEl.hidden = true;
+      setFactFullExpanded(refs.fullEl, refs.toggleEl, true);
 
       return;
 
@@ -380,52 +406,140 @@
 
 
 
-    titleEl.textContent = headline;
+    refs.titleEl.textContent = headline;
 
-    if (hashtagEl) {
+    if (refs.hashtagEl) {
       var hashtag = ev._hashtag || '';
       if (hashtag && hashtag.charAt(0) !== '#') {
         hashtag = '#' + hashtag;
       }
       if (hashtag) {
-        hashtagEl.textContent = hashtag;
-        hashtagEl.hidden = false;
+        refs.hashtagEl.textContent = hashtag;
+        refs.hashtagEl.hidden = false;
       } else {
-        hashtagEl.textContent = '';
-        hashtagEl.hidden = true;
+        refs.hashtagEl.textContent = '';
+        refs.hashtagEl.hidden = true;
       }
     }
 
-    dateEl.textContent = [formatDateRu(ev), location, group.replace(/^ · /, ''), meta].filter(Boolean).join(' · ');
+    refs.dateEl.textContent = [formatDateRu(ev), location, group.replace(/^ · /, ''), meta].filter(Boolean).join(' · ');
 
     if (summary) {
-      summaryEl.textContent = summary;
-      summaryBlockEl.hidden = false;
+      refs.summaryEl.textContent = summary;
+      refs.summaryBlockEl.hidden = false;
     } else {
-      summaryEl.textContent = '';
-      summaryBlockEl.hidden = true;
+      refs.summaryEl.textContent = '';
+      refs.summaryBlockEl.hidden = true;
     }
 
-    if (body.trim() || hasMedia) {
-      fullEl.hidden = false;
-      fullTextEl.textContent = body.trim() || '';
-      renderFactMedia(mediaEl, ev);
-      setFactFullExpanded(fullEl, toggleEl, false);
+    renderAttachedMembers(refs, ev);
+
+    var hasAttachedFull = Boolean(refs.fullEl.querySelector('.fact-attached-full'));
+
+    if (body.trim() || hasMedia || hasAttachedFull) {
+      refs.fullEl.hidden = false;
+      refs.fullTextEl.textContent = body.trim() || '';
+      renderFactMedia(refs.mediaEl, ev);
+      setFactFullExpanded(refs.fullEl, refs.toggleEl, false);
       requestAnimationFrame(function () {
-        updateFactFullToggle(fullEl, fullTextEl, toggleEl, hasMedia);
+        updateFactFullToggle(refs.fullEl, refs.fullTextEl, refs.toggleEl, hasMedia || hasAttachedFull);
       });
     } else if (!summary) {
-      fullEl.hidden = false;
-      fullTextEl.textContent = 'Описание отсутствует.';
-      toggleEl.hidden = true;
-      setFactFullExpanded(fullEl, toggleEl, true);
+      refs.fullEl.hidden = false;
+      refs.fullTextEl.textContent = 'Описание отсутствует.';
+      refs.toggleEl.hidden = true;
+      setFactFullExpanded(refs.fullEl, refs.toggleEl, true);
     } else {
-      fullEl.hidden = true;
-      fullTextEl.textContent = '';
-      toggleEl.hidden = true;
+      refs.fullEl.hidden = true;
+      refs.fullTextEl.textContent = '';
+      refs.toggleEl.hidden = true;
     }
 
-    renderFactRelated(bodyEl, ev);
+    renderFactRelated(refs.bodyEl, ev);
+
+  }
+
+
+
+  function updateFactPanel(ev) {
+
+    var refs = gatherMainFactRefs();
+
+    if (!refs) return;
+
+    renderFactCard(refs, ev);
+
+  }
+
+
+
+  function buildExtraFactCard() {
+
+    var section = document.createElement('section');
+
+    section.className = 'fact-panel fact-card';
+
+    section.innerHTML =
+      '<div class="fact-meta">' +
+        '<div class="fact-title-row">' +
+          '<div class="fact-title"></div>' +
+          '<span class="fact-hashtag" hidden></span>' +
+        '</div>' +
+        '<div class="fact-date"></div>' +
+      '</div>' +
+      '<div class="fact-body">' +
+        '<div class="fact-summary-block" hidden>' +
+          '<h3 class="fact-block-label">Кратко</h3>' +
+          '<p class="fact-summary"></p>' +
+        '</div>' +
+        '<div class="fact-full is-collapsed">' +
+          '<h3 class="fact-block-label">Описание</h3>' +
+          '<p class="fact-full-text"></p>' +
+          '<div class="fact-full-media"></div>' +
+          '<button type="button" class="fact-full-toggle" hidden>Читать полностью</button>' +
+        '</div>' +
+      '</div>';
+
+    return {
+      root: section,
+      refs: {
+        titleEl: section.querySelector('.fact-title'),
+        hashtagEl: section.querySelector('.fact-hashtag'),
+        dateEl: section.querySelector('.fact-date'),
+        summaryBlockEl: section.querySelector('.fact-summary-block'),
+        summaryEl: section.querySelector('.fact-summary'),
+        fullEl: section.querySelector('.fact-full'),
+        fullTextEl: section.querySelector('.fact-full-text'),
+        mediaEl: section.querySelector('.fact-full-media'),
+        toggleEl: section.querySelector('.fact-full-toggle'),
+        bodyEl: section.querySelector('.fact-body')
+      }
+    };
+
+  }
+
+
+
+  function renderExtraMatches(events) {
+
+    var container = document.getElementById('fact-extra-matches');
+
+    if (!container) return;
+
+    container.innerHTML = '';
+
+    if (!events || !events.length) {
+      container.hidden = true;
+      return;
+    }
+
+    events.forEach(function (ev) {
+      var card = buildExtraFactCard();
+      renderFactCard(card.refs, ev);
+      container.appendChild(card.root);
+    });
+
+    container.hidden = false;
 
   }
 
@@ -473,19 +587,7 @@
 
 
 
-  function renderFactRelated(bodyEl, ev) {
-
-    var sources = ev._sources || [];
-
-    var media = factRelatedMediaItems(ev);
-
-    var tags = ev._tag_items || [];
-
-    if (!sources.length && !media.length && !tags.length) return;
-
-    var wrap = document.createElement('div');
-
-    wrap.className = 'fact-related';
+  function appendRelatedItemsInto(wrap, sources, media, tags) {
 
     appendRelatedSection(wrap, 'Источники', sources, function (li, source) {
 
@@ -573,7 +675,151 @@
 
     });
 
+  }
+
+
+
+  function renderFactRelated(bodyEl, ev) {
+
+    var sources = ev._sources || [];
+
+    var media = factRelatedMediaItems(ev);
+
+    var tags = ev._tag_items || [];
+
+    if (!sources.length && !media.length && !tags.length) return;
+
+    var wrap = document.createElement('div');
+
+    wrap.className = 'fact-related';
+
+    appendRelatedItemsInto(wrap, sources, media, tags);
+
     bodyEl.appendChild(wrap);
+
+  }
+
+
+
+  function renderAttachedMembers(refs, ev) {
+
+    var oldAttached = refs.bodyEl.querySelectorAll('.fact-attached');
+
+    for (var i = 0; i < oldAttached.length; i++) {
+
+      oldAttached[i].remove();
+
+    }
+
+    var members = ev._attached_events || [];
+
+    if (!members.length) return;
+
+    members.forEach(function (member) {
+
+      var headline = (member.headline || '').trim();
+
+      var summary = (member.summary || '').trim();
+
+      var text = (member.text || '').trim();
+
+      var hasMemberMedia = Boolean(member.media && member.media.url);
+
+      if (summary) {
+
+        refs.summaryBlockEl.hidden = false;
+
+        var summaryItem = document.createElement('div');
+
+        summaryItem.className = 'fact-attached fact-attached-summary';
+
+        var summaryHeading = document.createElement('h4');
+
+        summaryHeading.className = 'fact-attached-heading';
+
+        summaryHeading.textContent = headline;
+
+        var summaryPara = document.createElement('p');
+
+        summaryPara.textContent = summary;
+
+        summaryItem.appendChild(summaryHeading);
+
+        summaryItem.appendChild(summaryPara);
+
+        refs.summaryBlockEl.appendChild(summaryItem);
+
+      }
+
+      if (text || hasMemberMedia) {
+
+        refs.fullEl.hidden = false;
+
+        var fullItem = document.createElement('div');
+
+        fullItem.className = 'fact-attached fact-attached-full';
+
+        var fullHeading = document.createElement('h4');
+
+        fullHeading.className = 'fact-attached-heading';
+
+        fullHeading.textContent = headline;
+
+        fullItem.appendChild(fullHeading);
+
+        if (text) {
+
+          var fullPara = document.createElement('p');
+
+          fullPara.textContent = text;
+
+          fullItem.appendChild(fullPara);
+
+        }
+
+        if (hasMemberMedia) {
+
+          var mediaWrap = document.createElement('div');
+
+          mediaWrap.className = 'fact-full-media';
+
+          renderFactMedia(mediaWrap, member);
+
+          fullItem.appendChild(mediaWrap);
+
+        }
+
+        refs.fullEl.appendChild(fullItem);
+
+      }
+
+      var memberSources = member.source_items || [];
+
+      var memberMedia = member.media_items || [];
+
+      var memberTags = member.tag_items || [];
+
+      if (memberSources.length || memberMedia.length || memberTags.length) {
+
+        var relatedWrap = document.createElement('div');
+
+        relatedWrap.className = 'fact-attached fact-related fact-attached-related';
+
+        var relatedHeading = document.createElement('h4');
+
+        relatedHeading.className = 'fact-attached-heading';
+
+        relatedHeading.textContent = headline;
+
+        relatedWrap.appendChild(relatedHeading);
+
+        appendRelatedItemsInto(relatedWrap, memberSources, memberMedia, memberTags);
+
+        refs.bodyEl.appendChild(relatedWrap);
+
+      }
+
+    });
 
   }
 
@@ -720,6 +966,8 @@
 
 
       updateFactPanel(ev);
+
+      renderExtraMatches([]);
 
       input.value = dateToInputValue(eventToDate(ev));
 
@@ -931,11 +1179,15 @@
 
       var ev = result.exact || result.closest;
 
+      var extraMatches = result.exactMatches.length > 1 ? result.exactMatches.slice(1) : [];
+
 
 
       if (!ev) {
 
         updateFactPanel(null);
+
+        renderExtraMatches([]);
 
         setStatus('События не найдены.', 'is-error');
 
@@ -951,6 +1203,8 @@
 
         selectEvent(ev, { moveTimeline: false });
 
+        renderExtraMatches(extraMatches);
+
         return;
 
       }
@@ -960,6 +1214,8 @@
       goToEvent(timeline, ev);
 
       selectEvent(ev, { moveTimeline: false });
+
+      renderExtraMatches(extraMatches);
 
 
 

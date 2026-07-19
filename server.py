@@ -15,6 +15,7 @@ import datetime
 import hashlib
 import hmac
 import json
+import os
 import re
 import secrets
 import sqlite3
@@ -84,6 +85,10 @@ EVENT_COLUMNS = [
     "region",
     "city",
     "related_events",
+    "attached_to",
+    "composite_headline",
+    "use_composite_headline",
+    "attachment_order",
 ]
 
 EVENT_STATUSES = {"draft", "review", "published"}
@@ -157,6 +162,43 @@ REFERENCE_CONFIG = {
         "order": "name, id",
     },
 }
+
+DRAFT_BATCH_COLUMNS = ["id", "title", "target_date", "status"]
+
+DRAFT_EVENT_COLUMNS = [
+    "id",
+    "batch_id",
+    "row_order",
+    "headline",
+    "start_year",
+    "start_month",
+    "start_day",
+    "start_date_precision",
+    "summary",
+    "text",
+    "event_type",
+    "scale",
+    "domain",
+    "country_name",
+    "region",
+    "city",
+    "import_status",
+    "imported_event_id",
+]
+
+DRAFT_SOURCE_COLUMNS = [
+    "id",
+    "draft_event_id",
+    "title",
+    "url",
+    "type",
+    "author",
+    "source_date",
+    "citation",
+    "reliability_score",
+    "evidence_quote",
+    "imported_source_id",
+]
 
 
 def _int_or_none(value: str | None) -> int | None:
@@ -436,6 +478,25 @@ def list_events(conn: sqlite3.Connection) -> list[dict[str, object]]:
     return events
 
 
+def get_event_for_update(conn: sqlite3.Connection, event_id: str) -> dict[str, object] | None:
+    """Читает событие целиком (EVENT_COLUMNS + текущие *_ids) для точечной правки одного
+    поля перед upsert_event() — без этого replace_event_links() стёр бы существующие связи."""
+    row = conn.execute(
+        f"SELECT {', '.join(event_db_columns())} FROM events WHERE id = ?",
+        (event_id,),
+    ).fetchone()
+    if not row:
+        return None
+    event: dict[str, object] = {key: "" if row[key] is None else str(row[key]) for key in EVENT_COLUMNS}
+    for link_key, (table, column) in EVENT_LINKS.items():
+        link_rows = conn.execute(
+            f"SELECT {column} FROM {table} WHERE event_id = ? ORDER BY {column}",
+            (event_id,),
+        ).fetchall()
+        event[link_key] = [str(link_row[column]) for link_row in link_rows]
+    return event
+
+
 def _clean_id_list(value: object) -> list[str]:
     if isinstance(value, list):
         return [str(item).strip() for item in value if str(item).strip()]
@@ -506,12 +567,69 @@ def clean_event(data: dict[str, object]) -> dict[str, object]:
         event["start_date_approximate"] = "1"
     event["start_date_approximate"] = normalize_flag(event.get("start_date_approximate"))
     event["end_date_approximate"] = normalize_flag(event.get("end_date_approximate"))
+    event["use_composite_headline"] = normalize_flag(event.get("use_composite_headline"))
+    if event["attached_to"] and event["attached_to"] == event["id"]:
+        raise ValueError("Событие не может быть привязано само к себе.")
     validate_event_dates(event)
     int(event["start_year"])
-    for column in ("start_month", "start_day", "end_year", "end_month", "end_day", "importance"):
+    for column in ("start_month", "start_day", "end_year", "end_month", "end_day", "importance", "attachment_order"):
         if event[column]:
             int(event[column])
     return event
+
+
+def validate_event_attachment(conn: sqlite3.Connection, event: dict[str, object]) -> None:
+    """Проверяет поле «Привязано к»: основное событие существует, не является само
+    привязанным (без цепочек), дата совпадает, и вторичное не публикуется без основного."""
+    attached_to = str(event.get("attached_to") or "").strip()
+    event_id = str(event.get("id") or "").strip()
+
+    if not attached_to:
+        return
+
+    has_children = conn.execute(
+        "SELECT 1 FROM events WHERE attached_to = ? LIMIT 1",
+        (event_id,),
+    ).fetchone()
+    if has_children:
+        raise ValueError(
+            "У этого события уже есть свои привязанные события — нельзя привязать его к другому основному."
+        )
+
+    target = conn.execute(
+        "SELECT id, start_year, start_month, start_day, status, verification_status, attached_to "
+        "FROM events WHERE id = ?",
+        (attached_to,),
+    ).fetchone()
+    if not target:
+        raise ValueError("Основное событие, указанное в «Привязано к», не найдено.")
+    if str(target["attached_to"] or "").strip():
+        raise ValueError(
+            "Нельзя привязать к событию, которое само привязано к другому — привяжите к основному событию."
+        )
+
+    same_date = (
+        str(target["start_year"] or "") == str(event.get("start_year") or "")
+        and str(target["start_month"] or "") == str(event.get("start_month") or "")
+        and str(target["start_day"] or "") == str(event.get("start_day") or "")
+    )
+    if not same_date:
+        raise ValueError(
+            "Дата привязанного события должна совпадать с датой основного — иначе сохраните его как отдельное событие."
+        )
+
+    if is_event_public_ready(event) and not is_event_public_ready(
+        {"status": str(target["status"] or ""), "verification_status": str(target["verification_status"] or "")}
+    ):
+        raise ValueError(
+            "Нельзя публиковать привязанное событие, пока основное не опубликовано и не проверено."
+        )
+
+
+def default_group(conn: sqlite3.Connection) -> sqlite3.Row | None:
+    return conn.execute(
+        "SELECT id, name FROM groups WHERE id = 'grp-0001' OR name = 'История' LIMIT 1"
+    ).fetchone()
 
 
 def upsert_event(conn: sqlite3.Connection, event: dict[str, object]) -> None:
@@ -522,6 +640,13 @@ def upsert_event(conn: sqlite3.Connection, event: dict[str, object]) -> None:
         ).fetchone()
         if hashtag_row:
             raise ValueError("Хештег уже используется другим событием.")
+    is_new = not conn.execute("SELECT 1 FROM events WHERE id = ?", (str(event["id"]),)).fetchone()
+    if is_new and not event.get("group_ids"):
+        group = default_group(conn)
+        if group:
+            event["group_ids"] = [str(group["id"])]
+            if not str(event.get("group") or "").strip():
+                event["group"] = str(group["name"])
     placeholders = ", ".join("?" for _ in EVENT_COLUMNS)
     update_columns = [column for column in EVENT_COLUMNS if column != "id"]
     db_columns = {column: f'"{column}"' if column == "group" else column for column in EVENT_COLUMNS}
@@ -838,23 +963,290 @@ def database_schema(conn: sqlite3.Connection) -> dict[str, object]:
     return {"database": str(DB_PATH.name), "tables": tables}
 
 
+def allocate_id(conn: sqlite3.Connection, table: str, prefix: str) -> str:
+    """Следующий свободный id вида prefix-0001 для таблицы table (аналог nextEventId/nextReferenceId в admin.js)."""
+    rows = conn.execute(f"SELECT id FROM {table}").fetchall()
+    pattern = re.compile(r"^" + re.escape(prefix) + r"-(\d+)$", re.IGNORECASE)
+    max_n = 0
+    for row in rows:
+        match = pattern.match(str(row["id"] or ""))
+        if match:
+            max_n = max(max_n, int(match.group(1)))
+    return f"{prefix}-{max_n + 1:04d}"
+
+
+def list_drafts(conn: sqlite3.Connection) -> dict[str, object]:
+    batches = [
+        {column: "" if row[column] is None else str(row[column]) for column in DRAFT_BATCH_COLUMNS}
+        for row in conn.execute(
+            f"SELECT {', '.join(DRAFT_BATCH_COLUMNS)} FROM draft_batches ORDER BY created_at, id"
+        ).fetchall()
+    ]
+    events = []
+    for row in conn.execute(
+        f"SELECT {', '.join(DRAFT_EVENT_COLUMNS)} FROM draft_events ORDER BY batch_id, row_order, id"
+    ).fetchall():
+        event = {column: "" if row[column] is None else str(row[column]) for column in DRAFT_EVENT_COLUMNS}
+        event["sources"] = [
+            {column: "" if source[column] is None else str(source[column]) for column in DRAFT_SOURCE_COLUMNS}
+            for source in conn.execute(
+                f"SELECT {', '.join(DRAFT_SOURCE_COLUMNS)} FROM draft_sources WHERE draft_event_id = ? ORDER BY id",
+                (row["id"],),
+            ).fetchall()
+        ]
+        events.append(event)
+    return {"batches": batches, "events": events}
+
+
+def clean_draft_batch(data: dict[str, object]) -> dict[str, str]:
+    item = {column: str(data.get(column, "") or "").strip() for column in DRAFT_BATCH_COLUMNS}
+    if not item["title"]:
+        raise ValueError("Укажите название листа.")
+    if not item["status"]:
+        item["status"] = "open"
+    return item
+
+
+def upsert_draft_batch(conn: sqlite3.Connection, item: dict[str, str]) -> dict[str, str]:
+    columns = DRAFT_BATCH_COLUMNS
+    placeholders = ", ".join("?" for _ in columns)
+    update_sql = ", ".join(f"{column} = excluded.{column}" for column in columns if column != "id")
+    conn.execute(
+        f"""
+        INSERT INTO draft_batches ({", ".join(columns)})
+        VALUES ({placeholders})
+        ON CONFLICT(id) DO UPDATE SET {update_sql}, updated_at = CURRENT_TIMESTAMP
+        """,
+        [item[column] for column in columns],
+    )
+    return item
+
+
+def delete_draft_batch(conn: sqlite3.Connection, batch_id: str) -> bool:
+    cur = conn.execute("DELETE FROM draft_batches WHERE id = ?", (batch_id,))
+    return cur.rowcount > 0
+
+
+def clean_draft_event(data: dict[str, object]) -> dict[str, str]:
+    item = {column: str(data.get(column, "") or "").strip() for column in DRAFT_EVENT_COLUMNS}
+    if not item["batch_id"]:
+        raise ValueError("Не указан лист черновика.")
+    if not item["row_order"]:
+        item["row_order"] = "0"
+    if not item["import_status"]:
+        item["import_status"] = "pending"
+    return item
+
+
+def upsert_draft_event(conn: sqlite3.Connection, item: dict[str, str]) -> dict[str, str]:
+    columns = DRAFT_EVENT_COLUMNS
+    placeholders = ", ".join("?" for _ in columns)
+    update_sql = ", ".join(f"{column} = excluded.{column}" for column in columns if column != "id")
+    conn.execute(
+        f"""
+        INSERT INTO draft_events ({", ".join(columns)})
+        VALUES ({placeholders})
+        ON CONFLICT(id) DO UPDATE SET {update_sql}, updated_at = CURRENT_TIMESTAMP
+        """,
+        [item[column] for column in columns],
+    )
+    return item
+
+
+def delete_draft_event(conn: sqlite3.Connection, draft_event_id: str) -> bool:
+    cur = conn.execute("DELETE FROM draft_events WHERE id = ?", (draft_event_id,))
+    return cur.rowcount > 0
+
+
+def clean_draft_source(data: dict[str, object]) -> dict[str, str]:
+    item = {column: str(data.get(column, "") or "").strip() for column in DRAFT_SOURCE_COLUMNS}
+    if not item["draft_event_id"]:
+        raise ValueError("Не указано событие-черновик.")
+    return item
+
+
+def upsert_draft_source(conn: sqlite3.Connection, item: dict[str, str]) -> dict[str, str]:
+    columns = DRAFT_SOURCE_COLUMNS
+    placeholders = ", ".join("?" for _ in columns)
+    update_sql = ", ".join(f"{column} = excluded.{column}" for column in columns if column != "id")
+    conn.execute(
+        f"""
+        INSERT INTO draft_sources ({", ".join(columns)})
+        VALUES ({placeholders})
+        ON CONFLICT(id) DO UPDATE SET {update_sql}, updated_at = CURRENT_TIMESTAMP
+        """,
+        [item[column] for column in columns],
+    )
+    return item
+
+
+def delete_draft_source(conn: sqlite3.Connection, draft_source_id: str) -> bool:
+    cur = conn.execute("DELETE FROM draft_sources WHERE id = ?", (draft_source_id,))
+    return cur.rowcount > 0
+
+
+def import_draft_event(conn: sqlite3.Connection, draft_id: str, actor: dict[str, object] | None) -> dict[str, object]:
+    draft_row = conn.execute(
+        f"SELECT {', '.join(DRAFT_EVENT_COLUMNS)} FROM draft_events WHERE id = ?", (draft_id,)
+    ).fetchone()
+    if not draft_row:
+        raise ValueError("Черновик не найден.")
+    draft = {column: "" if draft_row[column] is None else str(draft_row[column]) for column in DRAFT_EVENT_COLUMNS}
+    if not draft["headline"]:
+        raise ValueError("Заполните заголовок перед импортом.")
+    if not draft["start_year"]:
+        raise ValueError("Заполните год начала перед импортом.")
+
+    source_rows = conn.execute(
+        f"SELECT {', '.join(DRAFT_SOURCE_COLUMNS)} FROM draft_sources WHERE draft_event_id = ?", (draft_id,)
+    ).fetchall()
+
+    source_ids: list[str] = []
+    for source_row in source_rows:
+        draft_source = {
+            column: "" if source_row[column] is None else str(source_row[column]) for column in DRAFT_SOURCE_COLUMNS
+        }
+        source_id = draft_source["imported_source_id"]
+        if not source_id:
+            source_id = allocate_id(conn, "sources", "src")
+            source_item = clean_reference_item(
+                "sources",
+                {
+                    "id": source_id,
+                    "title": draft_source["title"] or draft["headline"],
+                    "url": draft_source["url"],
+                    "type": draft_source["type"],
+                    "author": draft_source["author"],
+                    "source_date": draft_source["source_date"],
+                    "citation": draft_source["citation"],
+                    "reliability_score": draft_source["reliability_score"],
+                    "evidence_quote": draft_source["evidence_quote"],
+                },
+            )
+            upsert_reference_item(conn, "sources", source_item)
+            conn.execute(
+                "UPDATE draft_sources SET imported_source_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                (source_id, draft_source["id"]),
+            )
+        source_ids.append(source_id)
+
+    event_id = allocate_id(conn, "events", "ev")
+    event_input: dict[str, object] = {
+        "id": event_id,
+        "headline": draft["headline"],
+        "start_year": draft["start_year"],
+        "start_month": draft["start_month"],
+        "start_day": draft["start_day"],
+        "start_date_precision": draft["start_date_precision"],
+        "summary": draft["summary"],
+        "text": draft["text"],
+        "event_type": draft["event_type"],
+        "scale": draft["scale"],
+        "domain": draft["domain"],
+        "country_name": draft["country_name"],
+        "region": draft["region"],
+        "city": draft["city"],
+        "status": "draft",
+        "source_ids": source_ids,
+    }
+    event = clean_event(event_input)
+    upsert_event(conn, event)
+
+    conn.execute(
+        """
+        UPDATE draft_events
+        SET import_status = 'imported', imported_event_id = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+        """,
+        (event_id, draft_id),
+    )
+    record_audit(conn, actor, "create", "event", event_id, str(event.get("headline") or ""))
+    write_timeline_files(conn)
+    return event
+
+
+def _attached_member_payload(row: dict[str, object]) -> dict[str, object]:
+    """Полезная нагрузка вторичного (привязанного) события для карточки основного."""
+    member: dict[str, object] = {
+        "id": row.get("id"),
+        "headline": row.get("headline", ""),
+        "summary": row.get("summary", ""),
+        "text": row.get("text", ""),
+    }
+    media_url = row.get("media_url", "")
+    if media_url:
+        media = {"url": media_url}
+        if row.get("media_caption"):
+            media["caption"] = row["media_caption"]
+        if row.get("media_credit"):
+            media["credit"] = row["media_credit"]
+        member["media"] = media
+    if row.get("source_items"):
+        member["source_items"] = row["source_items"]
+    if row.get("media_items"):
+        member["media_items"] = row["media_items"]
+    if row.get("tag_items"):
+        member["tag_items"] = row["tag_items"]
+    return member
+
+
+def _attached_members_by_primary(
+    events: list[dict[str, object]],
+) -> dict[str, list[dict[str, object]]]:
+    """Группирует опубликованные+проверенные вторичные события по id основного.
+
+    Вторичное событие попадает в группу, только если и оно само, и основное
+    прошли is_event_public_ready() — иначе оно не показывается ни отдельно,
+    ни в составе объединённой карточки (см. правило публикации в open-spec.md)."""
+    by_id = {row.get("id"): row for row in events}
+    grouped: dict[str, list[dict[str, object]]] = {}
+    for row in events:
+        primary_id = str(row.get("attached_to") or "").strip()
+        if not primary_id:
+            continue
+        primary = by_id.get(primary_id)
+        if not primary or not is_event_public_ready(row) or not is_event_public_ready(primary):
+            continue
+        grouped.setdefault(primary_id, []).append(row)
+
+    def sort_key(row: dict[str, object]) -> tuple:
+        order = _int_or_none(row.get("attachment_order"))
+        return (order is None, order or 0, str(row.get("id") or ""))
+
+    for members in grouped.values():
+        members.sort(key=sort_key)
+    return grouped
+
+
 def events_to_timeline(events: list[dict[str, str]]) -> dict[str, object]:
+    attached_members = _attached_members_by_primary(events)
+    hidden_ids = {str(member.get("id")) for members in attached_members.values() for member in members}
+
     timeline_events = []
     for row in events:
+        if str(row.get("id")) in hidden_ids:
+            continue
         if not is_event_public_ready(row):
             continue
         start_year = _int_or_none(row.get("start_year"))
         if start_year is None:
             continue
 
+        headline = row.get("headline", "")
+        members = attached_members.get(str(row.get("id")))
+        if members and row.get("use_composite_headline") == "1" and str(row.get("composite_headline") or "").strip():
+            headline = str(row["composite_headline"]).strip()
+
         event: dict[str, object] = {
             "unique_id": row.get("id") or None,
             "start_date": {"year": start_year},
             "text": {
-                "headline": row.get("headline", ""),
+                "headline": headline,
                 "text": row.get("text", ""),
             },
         }
+        if members:
+            event["_attached_events"] = [_attached_member_payload(member) for member in members]
 
         for source, target in (("start_month", "month"), ("start_day", "day")):
             value = _int_or_none(row.get(source))
@@ -911,9 +1303,14 @@ def events_to_timeline(events: list[dict[str, str]]) -> dict[str, object]:
 
 
 def events_to_scale(events: list[dict[str, str]]) -> dict[str, object]:
+    attached_members = _attached_members_by_primary(events)
+    hidden_ids = {str(member.get("id")) for members in attached_members.values() for member in members}
+
     years: list[int] = []
     scale_events = []
     for row in events:
+        if str(row.get("id")) in hidden_ids:
+            continue
         if not is_event_public_ready(row):
             continue
         start_year = _int_or_none(row.get("start_year"))
@@ -923,11 +1320,20 @@ def events_to_scale(events: list[dict[str, str]]) -> dict[str, object]:
         end_year = _int_or_none(row.get("end_year"))
         if end_year is not None:
             years.append(end_year)
+
+        headline = row.get("headline", "")
+        if (
+            attached_members.get(str(row.get("id")))
+            and row.get("use_composite_headline") == "1"
+            and str(row.get("composite_headline") or "").strip()
+        ):
+            headline = str(row["composite_headline"]).strip()
+
         scale_events.append(
             {
                 "id": row.get("id"),
                 "year": start_year,
-                "headline": row.get("headline", ""),
+                "headline": headline,
                 "group": row.get("group") or None,
                 "importance": _int_or_none(row.get("importance")) or 1,
             }
@@ -1086,6 +1492,12 @@ class ArchiveHandler(SimpleHTTPRequestHandler):
                     return
                 self.send_json(database_schema(conn))
             return
+        if path == "/api/drafts":
+            with get_db() as conn:
+                if not self.require_user(conn, {"admin", "editor"}):
+                    return
+                self.send_json(list_drafts(conn))
+            return
         super().do_GET()
 
     def do_POST(self) -> None:
@@ -1210,6 +1622,108 @@ class ArchiveHandler(SimpleHTTPRequestHandler):
                     self.send_json({"error": f"Ошибка сохранения справочника: {exc}"}, status=500)
                 return
 
+        draft_import_prefix = "/api/drafts/events/"
+        if path.startswith(draft_import_prefix) and path.endswith("/import"):
+            draft_id = unquote(path[len(draft_import_prefix) : -len("/import")])
+            try:
+                with get_db() as conn:
+                    actor = self.require_user(conn, {"admin", "editor"})
+                    if not actor:
+                        return
+                    event = import_draft_event(conn, draft_id, actor)
+                    self.send_json({"event": event})
+            except ValueError as exc:
+                self.send_json({"error": str(exc)}, status=400)
+            except Exception as exc:
+                self.send_json({"error": f"Ошибка импорта черновика: {exc}"}, status=500)
+            return
+
+        if path == "/api/drafts/batches":
+            try:
+                item = clean_draft_batch(self.read_json())
+                with get_db() as conn:
+                    if not self.require_user(conn, {"admin", "editor"}):
+                        return
+                    if not item["id"]:
+                        item["id"] = allocate_id(conn, "draft_batches", "dft")
+                    saved = upsert_draft_batch(conn, item)
+                    self.send_json({"item": saved})
+            except ValueError as exc:
+                self.send_json({"error": str(exc)}, status=400)
+            except Exception as exc:
+                self.send_json({"error": f"Ошибка сохранения листа: {exc}"}, status=500)
+            return
+
+        if path == "/api/drafts/events":
+            try:
+                item = clean_draft_event(self.read_json())
+                with get_db() as conn:
+                    if not self.require_user(conn, {"admin", "editor"}):
+                        return
+                    if not item["id"]:
+                        item["id"] = allocate_id(conn, "draft_events", "dfe")
+                    saved = upsert_draft_event(conn, item)
+                    self.send_json({"item": saved})
+            except ValueError as exc:
+                self.send_json({"error": str(exc)}, status=400)
+            except Exception as exc:
+                self.send_json({"error": f"Ошибка сохранения строки: {exc}"}, status=500)
+            return
+
+        if path == "/api/drafts/sources":
+            try:
+                item = clean_draft_source(self.read_json())
+                with get_db() as conn:
+                    if not self.require_user(conn, {"admin", "editor"}):
+                        return
+                    if not item["id"]:
+                        item["id"] = allocate_id(conn, "draft_sources", "dfs")
+                    saved = upsert_draft_source(conn, item)
+                    self.send_json({"item": saved})
+            except ValueError as exc:
+                self.send_json({"error": str(exc)}, status=400)
+            except Exception as exc:
+                self.send_json({"error": f"Ошибка сохранения источника: {exc}"}, status=500)
+            return
+
+        if path in ("/api/events/bulk/attach", "/api/events/bulk/verify", "/api/events/bulk/publish"):
+            try:
+                data = self.read_json()
+                ids = [str(item).strip() for item in (data.get("ids") or []) if str(item).strip()]
+                attached_to = str(data.get("attached_to", "") or "").strip()
+                if path.endswith("/attach") and not attached_to:
+                    self.send_json({"error": "Не указано целевое событие для привязки."}, status=400)
+                    return
+                with get_db() as conn:
+                    actor = self.require_user(conn, {"admin"})
+                    if not actor:
+                        return
+                    results = []
+                    for event_id in ids:
+                        try:
+                            event = get_event_for_update(conn, event_id)
+                            if event is None:
+                                raise ValueError("Событие не найдено.")
+                            if path.endswith("/attach"):
+                                event["attached_to"] = attached_to
+                            elif path.endswith("/verify"):
+                                event["verification_status"] = "verified"
+                            elif path.endswith("/publish"):
+                                event["status"] = "published"
+                            event = clean_event(event)
+                            if path.endswith("/attach"):
+                                validate_event_attachment(conn, event)
+                            upsert_event(conn, event)
+                            record_audit(conn, actor, "update", "event", event_id, str(event.get("headline") or ""))
+                            results.append({"id": event_id, "ok": True})
+                        except ValueError as exc:
+                            results.append({"id": event_id, "ok": False, "error": str(exc)})
+                    write_timeline_files(conn)
+                self.send_json({"results": results})
+            except Exception as exc:
+                self.send_json({"error": f"Ошибка массового изменения: {exc}"}, status=500)
+            return
+
         if path != "/api/events":
             self.send_error(404)
             return
@@ -1220,6 +1734,7 @@ class ArchiveHandler(SimpleHTTPRequestHandler):
                 if not actor:
                     return
                 event_exists = bool(conn.execute("SELECT 1 FROM events WHERE id = ?", (event["id"],)).fetchone())
+                validate_event_attachment(conn, event)
                 upsert_event(conn, event)
                 record_audit(
                     conn,
@@ -1291,6 +1806,33 @@ class ArchiveHandler(SimpleHTTPRequestHandler):
                         record_audit(conn, actor, "delete", kind, item_id, summary)
                 self.send_json({"deleted": deleted}, status=200 if deleted else 404)
                 return
+        draft_batch_prefix = "/api/drafts/batches/"
+        if path.startswith(draft_batch_prefix):
+            batch_id = unquote(path[len(draft_batch_prefix) :])
+            with get_db() as conn:
+                if not self.require_user(conn, {"admin", "editor"}):
+                    return
+                deleted = delete_draft_batch(conn, batch_id)
+            self.send_json({"deleted": deleted}, status=200 if deleted else 404)
+            return
+        draft_event_prefix = "/api/drafts/events/"
+        if path.startswith(draft_event_prefix):
+            draft_event_id = unquote(path[len(draft_event_prefix) :])
+            with get_db() as conn:
+                if not self.require_user(conn, {"admin", "editor"}):
+                    return
+                deleted = delete_draft_event(conn, draft_event_id)
+            self.send_json({"deleted": deleted}, status=200 if deleted else 404)
+            return
+        draft_source_prefix = "/api/drafts/sources/"
+        if path.startswith(draft_source_prefix):
+            draft_source_id = unquote(path[len(draft_source_prefix) :])
+            with get_db() as conn:
+                if not self.require_user(conn, {"admin", "editor"}):
+                    return
+                deleted = delete_draft_source(conn, draft_source_id)
+            self.send_json({"deleted": deleted}, status=200 if deleted else 404)
+            return
         self.send_error(404)
 
     def read_json(self) -> dict[str, object]:
@@ -1314,8 +1856,9 @@ class ArchiveHandler(SimpleHTTPRequestHandler):
 
 def main() -> None:
     init_db()
-    server = ThreadingHTTPServer(("127.0.0.1", 8000), ArchiveHandler)
-    print("Server: http://127.0.0.1:8000")
+    port = int(os.environ.get("PORT", "8000"))
+    server = ThreadingHTTPServer(("127.0.0.1", port), ArchiveHandler)
+    print(f"Server: http://127.0.0.1:{port}")
     print("Database:", DB_PATH)
     server.serve_forever()
 
