@@ -214,8 +214,13 @@
 
             <h3 class="field-full admin-form-heading">География</h3>
             <div class="admin-field">
-              <label for="event-country">Страна</label>
-              <input type="text" id="event-country" name="country_name">
+              <label for="event-country">Страна (место)</label>
+              <input type="text" id="event-country" name="country_name" placeholder="Где произошло; несколько — через запятую">
+            </div>
+            <div class="admin-field">
+              <label for="event-participants">Страны-участники</label>
+              <input type="text" id="event-participants" name="participant_countries" placeholder="СССР; Германия">
+              <p class="admin-hint">Кто участвовал — основа полос сравнения стран на таймлайне. Через «;».</p>
             </div>
             <div class="admin-field">
               <label for="event-region">Регион</label>
@@ -436,7 +441,16 @@
             </div>
             <button type="button" class="admin-btn" id="btn-events-bulk-verify">Пометить проверенным</button>
             <button type="button" class="admin-btn admin-btn-primary" id="btn-events-bulk-publish">Опубликовать</button>
+            <div class="bulk-toolbar-attach">
+              <select id="events-bulk-group"></select>
+              <button type="button" class="admin-btn" id="btn-events-bulk-set-group">Назначить группу</button>
+            </div>
           </div>
+
+          <div class="admin-toolbar">
+            <button type="button" class="admin-btn" id="btn-events-coverage">Отчёт покрытия (страны × годы)</button>
+          </div>
+          <div id="events-coverage-report" hidden></div>
 
           <div class="admin-table-wrap">
             <table class="admin-table" aria-label="Список событий">

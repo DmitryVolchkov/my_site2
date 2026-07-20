@@ -1484,7 +1484,7 @@
     });
     var q = (query || '').trim().toLowerCase();
     container.innerHTML = '';
-    var items = state.groups.filter(function (item) {
+    var items = sortGroupsHierarchically(state.groups).filter(function (item) {
       if (selected[item.id]) return false;
       var haystack = ((item.name || '') + ' ' + (item.slug || '') + ' ' + item.id).toLowerCase();
       return !q || haystack.indexOf(q) !== -1;
@@ -1497,14 +1497,38 @@
       var row = document.createElement('div');
       row.className = 'admin-media-db-option';
       var id = 'event-group-db-' + item.id;
+      var indent = item.parent_id ? '<span aria-hidden="true">&nbsp;&nbsp;└ </span>' : '';
       row.innerHTML =
         '<input type="checkbox" id="' + escapeAttr(id) + '" value="' + escapeAttr(item.id) + '">' +
         '<label for="' + escapeAttr(id) + '">' +
-        '<strong>' + escapeHtml(item.name || item.id) + '</strong>' +
-        '<span>' + escapeHtml(item.slug || '') + '</span>' +
+        '<strong>' + indent + escapeHtml(item.name || item.id) + '</strong>' +
+        '<span>' + escapeHtml(groupPathLabel(item, true) || item.slug || '') + '</span>' +
         '</label>';
       container.appendChild(row);
     });
+  }
+
+  function sortGroupsHierarchically(groups) {
+    var mains = groups.filter(function (g) { return !g.parent_id; })
+      .sort(function (a, b) { return (a.name || '').localeCompare(b.name || '', 'ru'); });
+    var result = [];
+    mains.forEach(function (main) {
+      result.push(main);
+      groups.filter(function (g) { return g.parent_id === main.id; })
+        .sort(function (a, b) { return (a.name || '').localeCompare(b.name || '', 'ru'); })
+        .forEach(function (child) { result.push(child); });
+    });
+    groups.forEach(function (g) {
+      if (result.indexOf(g) === -1) result.push(g);
+    });
+    return result;
+  }
+
+  function groupPathLabel(item, parentOnly) {
+    if (!item.parent_id) return parentOnly ? '' : (item.name || item.id);
+    var parent = state.groups.find(function (g) { return g.id === item.parent_id; });
+    var parentName = parent ? (parent.name || parent.id) : item.parent_id;
+    return parentOnly ? parentName : parentName + ' / ' + (item.name || item.id);
   }
 
   async function uploadMediaFile(file) {
@@ -1545,7 +1569,7 @@
       return item.name || item.id;
     });
     renderOptions('event-group-ids', state.groups, function (item) {
-      return item.name || item.id;
+      return groupPathLabel(item, false);
     });
     renderEventGroupList();
     renderEventSourceList();
@@ -1881,7 +1905,7 @@
         };
         item = await saveReferenceToServer('groups', item);
         replaceOrAppend(state.groups, item.id, item);
-        renderOptions('event-group-ids', state.groups, function (x) { return x.name || x.id; });
+        renderOptions('event-group-ids', state.groups, function (x) { return groupPathLabel(x, false); });
         renderGroupsTable();
         addEventGroupIds([item.id]);
         closeGroupNewModal();
@@ -1943,6 +1967,51 @@
     var selected = Object.keys(state.selectedEventIds).filter(function (id) { return state.selectedEventIds[id]; });
     toolbar.hidden = !canManageUsers() || selected.length === 0;
     count.textContent = 'Выбрано: ' + selected.length;
+    var groupSelect = $('events-bulk-group');
+    if (groupSelect && state.groups.length) {
+      var current = groupSelect.value;
+      groupSelect.innerHTML = '<option value="">Группа…</option>' +
+        sortGroupsHierarchically(state.groups).map(function (g) {
+          var label = (g.parent_id ? '  └ ' : '') + (g.name || g.id);
+          return '<option value="' + escapeAttr(g.id) + '">' + escapeHtml(label) + '</option>';
+        }).join('');
+      groupSelect.value = current;
+    }
+  }
+
+  async function renderCoverageReport() {
+    var container = $('events-coverage-report');
+    if (!container) return;
+    if (!container.hidden) { container.hidden = true; return; }
+    try {
+      var r = await fetch('/api/reports/coverage', { credentials: 'same-origin' });
+      var data = await r.json();
+      if (!r.ok) throw new Error(data.error || 'Не удалось получить отчёт.');
+      var years = [];
+      for (var y = data.min_year; y <= data.max_year; y++) years.push(y);
+      var byKey = {};
+      data.coverage.forEach(function (row) {
+        var key = row.country + '|' + row.role;
+        (byKey[key] = byKey[key] || {})[row.year] = row.count;
+      });
+      var roleLabel = { place: 'место', participant: 'участник' };
+      var html = '<div class="admin-table-wrap"><table class="admin-table"><thead><tr><th>Страна (роль)</th>' +
+        years.map(function (y) { return '<th>' + y + '</th>'; }).join('') + '</tr></thead><tbody>';
+      Object.keys(byKey).sort().forEach(function (key) {
+        var parts = key.split('|');
+        html += '<tr><td>' + escapeHtml(parts[0]) + ' (' + (roleLabel[parts[1]] || parts[1]) + ')</td>' +
+          years.map(function (y) {
+            var v = byKey[key][y];
+            return '<td>' + (v ? v : '<span style="opacity:.35">—</span>') + '</td>';
+          }).join('') + '</tr>';
+      });
+      html += '</tbody></table></div><p class="admin-hint">«—» — пробел покрытия: в архиве нет событий страны за этот год.</p>';
+      container.innerHTML = html;
+      container.hidden = false;
+    } catch (err) {
+      container.innerHTML = '<p class="admin-hint">' + escapeHtml(err.message || 'Ошибка отчёта.') + '</p>';
+      container.hidden = false;
+    }
   }
 
   async function runEventsBulkAction(kind, extra, confirmMessage) {
@@ -2368,6 +2437,7 @@
     $('event-type').value = ev.event_type || '';
     $('event-scale').value = ev.scale || '';
     $('event-country').value = ev.country_name || '';
+    $('event-participants').value = (ev.participant_countries || []).join('; ');
     $('event-region').value = ev.region || '';
     $('event-city').value = ev.city || '';
     $('event-headline').value = ev.headline || '';
@@ -2808,6 +2878,7 @@
       category: ($('event-category').value || '').trim(),
       subcategory: ($('event-subcategory').value || '').trim(),
       country_name: ($('event-country').value || '').trim(),
+      participant_countries: ($('event-participants').value || '').trim(),
       region: ($('event-region').value || '').trim(),
       city: ($('event-city').value || '').trim(),
       related_events: ($('event-related').value || '').trim(),
@@ -3279,6 +3350,15 @@
       });
     });
 
+    $('btn-events-bulk-set-group') && $('btn-events-bulk-set-group').addEventListener('click', function () {
+      var groupId = ($('events-bulk-group').value || '').trim();
+      if (!groupId) {
+        alert('Выберите группу.');
+        return;
+      }
+      runEventsBulkAction('set_group', { group_id: groupId }, 'Назначить группу %d событ.?');
+    });
+    $('btn-events-coverage') && $('btn-events-coverage').addEventListener('click', renderCoverageReport);
     $('btn-events-bulk-verify') && $('btn-events-bulk-verify').addEventListener('click', function () {
       runEventsBulkAction('verify', {}, 'Пометить выбранные события (%d) проверенными?');
     });

@@ -217,6 +217,9 @@
 | `name` | Название группы (полоса таймлайна). |
 | `slug` | Машиночитаемый код группы. |
 | `description` | Описание группы. |
+| `parent_id` | Код родительской группы (`NULL` — основная группа). Иерархия «основная → подгруппа», миграция `013`. |
+
+Таксономия (5 основных: Общество, Политика, Экономика, Военные действия, Наука + 18 подгрупп по IPTC Media Topics) и правила иерархии (наиболее специфичная группа у события; фильтры и агрегаты считают подгруппы в родителе) — в [open-spec-country-lanes.md](open-spec-country-lanes.md), п. 6.
 
 ### `draft_batches`
 
@@ -288,6 +291,7 @@ migrations/009_split_date_approximate.sql
 migrations/010_split_date_precision.sql
 migrations/011_create_drafts.sql
 migrations/012_add_event_attachments.sql
+migrations/013_add_group_parent.sql
 ```
 
 При запуске `server.py` сервер:

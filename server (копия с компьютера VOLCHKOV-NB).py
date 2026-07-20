@@ -479,7 +479,7 @@ def list_events(conn: sqlite3.Connection) -> list[dict[str, object]]:
             {key: "" if group[key] is None else str(group[key]) for key in REFERENCE_CONFIG["groups"]["columns"]}
             for group in conn.execute(
                 """
-                SELECT g.id, g.name, g.slug, g.description, g.parent_id
+                SELECT g.id, g.name, g.slug, g.description
                 FROM event_groups eg
                 JOIN groups g ON g.id = eg.group_id
                 WHERE eg.event_id = ?

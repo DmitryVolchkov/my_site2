@@ -484,7 +484,7 @@ TimelineJS даёт keyboard-навигацию и ARIA-разметку по м
 
 | Семейство | Поля / связи в БД | Пример значения полосы |
 | --- | --- | --- |
-| **Группы** | `events.group`, `group_items` / `event_groups` | «Вторая мировая», `grp-0001` |
+| **Группы** | `events.group`, `group_items` / `event_groups`; иерархия `groups.parent_id` (миграция 013) | «Политика», `grp-0003`; полоса по основной группе агрегирует её подгруппы ([open-spec-country-lanes.md](open-spec-country-lanes.md) п. 6) |
 | **Теги** | `events.tags`, `tag_items` / `event_tags` | «СССР», `tag-0003` |
 | **География** | `country_name`, `region`, `city` | «Россия», «Москва» |
 | **Классификация** | `domain`, `category`, `subcategory`, `event_type`, `scale` | «политика», `international` |
