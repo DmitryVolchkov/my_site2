@@ -1487,6 +1487,117 @@ def timeline_nearest(conn: sqlite3.Connection, date_str: str) -> dict[str, objec
     }
 
 
+def _parse_viewport_bound(value: str, *, end_side: bool = False) -> "object":
+    """Принимает 'YYYY' или 'YYYY-MM-DD' (canvas-спека: на MVP допустим только год)."""
+    import calendar
+    from datetime import date as _date
+
+    value = (value or "").strip()
+    if not value:
+        raise ValueError("empty")
+    if len(value) == 4:
+        year = int(value)
+        return _date(year, 12, 31) if end_side else _date(year, 1, 1)
+    parts = value.split("-")
+    year, month, day = int(parts[0]), int(parts[1]), int(parts[2])
+    return _date(year, month, min(day, calendar.monthrange(year, month)[1]))
+
+
+def timeline_range(conn: sqlite3.Connection) -> dict[str, object]:
+    row = conn.execute(
+        """
+        SELECT MIN(CAST(start_year AS INTEGER)), MAX(CAST(start_year AS INTEGER)), COUNT(*)
+        FROM events
+        WHERE status = 'published' AND verification_status = 'verified'
+          AND COALESCE(attached_to, '') = ''
+        """
+    ).fetchone()
+    return {"min_year": row[0], "max_year": row[1], "event_count": row[2]}
+
+
+def timeline_markers(conn: sqlite3.Connection, from_str: str, to_str: str, limit: int) -> dict[str, object]:
+    """Маркеры viewport (canvas-спека, этап 1): только public-ready, без вторичных (attached_to),
+    одна полоса default. Интервальные события попадают в окно, если пересекают его."""
+    import calendar
+    from datetime import date as _date
+
+    frm = _parse_viewport_bound(from_str)
+    to = _parse_viewport_bound(to_str, end_side=True)
+    limit = max(1, min(int(limit or 500), 2000))
+
+    def _mk(y: int, m: int | None, d: int | None, *, end_side: bool = False) -> _date:
+        month = m or (12 if end_side else 1)
+        day = d or (calendar.monthrange(y, month)[1] if end_side else 1)
+        return _date(y, month, min(day, calendar.monthrange(y, month)[1]))
+
+    rows = conn.execute(
+        f"""
+        SELECT {", ".join(event_db_columns())} FROM events
+        WHERE status = 'published' AND verification_status = 'verified'
+          AND COALESCE(attached_to, '') = ''
+        """
+    ).fetchall()
+
+    visible: list[tuple] = []
+    for row in rows:
+        year = _int_or_none(str(row["start_year"] or ""))
+        if year is None:
+            continue
+        month = _int_or_none(str(row["start_month"] or ""))
+        day = _int_or_none(str(row["start_day"] or ""))
+        start = _mk(year, month, day)
+        end_year = _int_or_none(str(row["end_year"] or ""))
+        end = None
+        if end_year is not None:
+            end = _mk(end_year, _int_or_none(str(row["end_month"] or "")), _int_or_none(str(row["end_day"] or "")), end_side=True)
+        span_end = end or start
+        if span_end < frm or start > to:
+            continue
+        importance = _int_or_none(str(row["importance"] or "")) or 0
+        visible.append((importance, start, row, month, day, end_year))
+
+    total = len(visible)
+    visible.sort(key=lambda item: (-item[0], item[1], str(item[2]["id"])))
+    truncated = total > limit
+    visible = visible[:limit]
+
+    markers = []
+    for importance, start, row, month, day, end_year in visible:
+        marker = {
+            "id": str(row["id"]),
+            "lane_id": "default",
+            "date": {"year": int(str(row["start_year"])), "month": month, "day": day},
+            "end_date": None,
+            "headline": str(row["headline"] or ""),
+            "importance": importance,
+            "group": str(row["group"] or ""),
+            "hashtag": str(row["hashtag"] or ""),
+            "summary": str(row["summary"] or ""),
+            "start_date_precision": str(row["start_date_precision"] or ""),
+            "end_date_precision": str(row["end_date_precision"] or ""),
+            "start_date_approximate": str(row["start_date_approximate"] or "") == "1",
+            "end_date_approximate": str(row["end_date_approximate"] or "") == "1",
+            "country_name": str(row["country_name"] or ""),
+        }
+        if end_year is not None:
+            marker["end_date"] = {
+                "year": end_year,
+                "month": _int_or_none(str(row["end_month"] or "")),
+                "day": _int_or_none(str(row["end_day"] or "")),
+            }
+        markers.append(marker)
+
+    rng = timeline_range(conn)
+    return {
+        "range": {"min_year": rng["min_year"], "max_year": rng["max_year"]},
+        "viewport": {"from": frm.isoformat(), "to": to.isoformat()},
+        "lanes": [{"id": "default", "title": "Все события", "kind": "default"}],
+        "markers": markers,
+        "truncated": truncated,
+        "total_in_viewport": total,
+    }
+
+
 def coverage_report(conn: sqlite3.Connection) -> dict[str, object]:
     """Отчёт «пробелы покрытия» (open-spec-country-lanes.md, п. 13): страна x год x роль."""
     rows = conn.execute(
@@ -1644,6 +1755,25 @@ class ArchiveHandler(SimpleHTTPRequestHandler):
                         return
                     self.send_json({kind: list_reference_items(conn, kind)})
                 return
+        if path == "/api/timeline/markers":
+            query = parse_qs(urlparse(self.path).query)
+            try:
+                with get_db() as conn:
+                    self.send_json(
+                        timeline_markers(
+                            conn,
+                            (query.get("from") or [""])[0],
+                            (query.get("to") or [""])[0],
+                            int((query.get("limit") or ["500"])[0]),
+                        )
+                    )
+            except (ValueError, IndexError):
+                self.send_json({"error": "Ожидаются параметры from и to (YYYY или YYYY-MM-DD)."}, status=400)
+            return
+        if path == "/api/timeline/range":
+            with get_db() as conn:
+                self.send_json(timeline_range(conn), headers={"Cache-Control": "max-age=60"})
+            return
         if path == "/api/timeline/nearest":
             query = parse_qs(urlparse(self.path).query)
             date_value = (query.get("date") or [""])[0].strip()

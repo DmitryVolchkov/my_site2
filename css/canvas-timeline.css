@@ -1,0 +1,62 @@
+/* Canvas-таймлайн (MVP, этап 1) — docs/open-spec-canvas-timeline.md */
+
+.archive-canvas-timeline {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  --act-axis: #8a8a86;
+  --act-text: #333;
+  --act-flag: #eef3fb;
+  --act-flag-border: #3a7bd5;
+  --act-accent: #1d5fbf;
+}
+
+.archive-canvas-timeline canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: pan-y; /* вертикальный скролл страницы не перехватывается */
+  cursor: grab;
+}
+
+.act-tooltip {
+  position: absolute;
+  z-index: 3;
+  max-width: 320px;
+  padding: 4px 8px;
+  font: 12px/1.4 sans-serif;
+  color: #222;
+  background: #fff;
+  border: 1px solid #c9c9c4;
+  border-radius: 4px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
+  pointer-events: none;
+}
+
+/* Параллельное accessible-дерево: визуально скрыто, доступно с клавиатуры */
+.act-sr-list {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  list-style: none;
+}
+
+.act-sr-list button:focus {
+  position: fixed;
+  left: 8px;
+  bottom: 8px;
+  z-index: 50;
+  width: auto;
+  height: auto;
+  padding: 6px 10px;
+  clip: auto;
+  background: #fff;
+  border: 2px solid #1d5fbf;
+  border-radius: 4px;
+}

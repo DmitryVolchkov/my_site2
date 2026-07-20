@@ -173,7 +173,47 @@
       return scale;
     }
 
+    // Canvas-рендер за флагом (?timeline=canvas) — этап 1 canvas-спеки, «Стратегия миграции»
+    const USE_CANVAS = new URLSearchParams(window.location.search).get('timeline') === 'canvas';
+
+    function loadStyle(href) {
+      return new Promise((resolve, reject) => {
+        const l = document.createElement('link');
+        l.rel = 'stylesheet';
+        l.href = href;
+        l.onload = () => resolve();
+        l.onerror = () => reject(new Error('Не удалось загрузить стили: ' + href));
+        document.head.appendChild(l);
+      });
+    }
+
+    async function initCanvasPage() {
+      await loadScript('js/main.js');
+      await loadStyle('css/canvas-timeline.css');
+      await loadScript('js/date-format.js');
+      await loadScript('js/canvas-timeline.js');
+
+      const timeline = window.ArchiveCanvasTimeline.init('timelinejs-embed', {});
+      window.__canvasTimeline = timeline;
+      window.__timeline = timeline; // TimelineJS-совместимый фасад: on/goToId/goToDate
+
+      await loadScript('js/date-search.js?v=media-after-text-1');
+      if (typeof window.initDateSearch === 'function') {
+        // Данные карточек — через API (тот же формат, что timeline_data.json), не статический файл
+        window.initDateSearch(timeline, '/api/timeline');
+      }
+    }
+
     async function initPage() {
+      if (USE_CANVAS) {
+        try {
+          await initCanvasPage();
+        } catch (e) {
+          console.error('Canvas-таймлайн не инициализировался:', e);
+        }
+        return;
+      }
+
       // 1) Загружаем unified data (если есть)
       try {
         await loadUnifiedData();

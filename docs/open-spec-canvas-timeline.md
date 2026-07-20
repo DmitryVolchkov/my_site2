@@ -15,8 +15,8 @@
 
 Сводный чеклист; детали — в «Этапы внедрения», «Стратегия миграции» и «Открытые вопросы» ниже.
 
-- [ ] **Этап 1 — MVP:** `GET /api/timeline/markers` + `/nearest` (с учётом точности дат и интервалов), Canvas-рендер без гонок инициализации, одна полоса, минимальная разводка маркеров, a11y, тач; критерии приёмки MVP зелёные.
-- [ ] **Cutover:** `?timeline=canvas` становится единственным поведением; удаление TimelineJS, `timeline-layout.js`, vendor-файлов.
+- [x] **Этап 1 — MVP (код, 2026-07-20):** `GET /api/timeline/markers`, `/range`, `/nearest`; `js/canvas-timeline.js` (init после ненулевых размеров через ResizeObserver, dirty-flag рендер, DPR, greedy-разводка, pan/zoom/pinch, hit-test, tooltip, sr-only список, `touch-action: pan-y`); `css/canvas-timeline.css`; включение по `?timeline=canvas`; `date-search.js` работает через фасад (`on`/`goToId`) и `/api/timeline`. API-тесты 9/9. **Осталось:** ручная приёмка по чеклисту MVP в браузере.
+- [ ] **Cutover:** после зелёного чеклиста приёмки `?timeline=canvas` становится единственным поведением; удаление TimelineJS, `timeline-layout.js`, vendor-файлов.
 - [ ] **До этапа 2 — решения:** открытые вопросы № 1, 2 (полосы), № 7 — миграция `event_countries` + нормализация составных `country_name` ([open-spec-country-lanes.md](open-spec-country-lanes.md), блок A).
 - [ ] **Этап 2 — полосы, фильтры, LOD:** UI полос, автоназначение, лестница уровней зума с агрегатами, интервальные флаги, полное поведение поиска, тач-эквивалент hover + легенда, URL-состояние (deep-linking) — [open-spec-country-lanes.md](open-spec-country-lanes.md), блок D; критерии приёмки этапа 2.
 - [ ] **Этап 3 — масштаб 10M:** PostgreSQL, серверная агрегация единиц лестницы, кэш/лимиты, конкурентность, нагрузочные тесты; критерии приёмки этапа 3.
