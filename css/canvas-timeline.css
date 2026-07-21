@@ -34,6 +34,25 @@
   pointer-events: none;
 }
 
+/* Панель «ближайших» при поиске по пустой дате (open-spec-country-lanes.md, пп. 2, 7) */
+.act-info-panel {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  right: 4px;
+  z-index: 3;
+  max-width: 460px;
+  padding: 5px 9px;
+  font: 12px/1.5 sans-serif;
+  color: #222;
+  background: #fff9e8;
+  border: 1px solid #d8c46a;
+  border-left: 3px solid #1d5fbf;
+  border-radius: 4px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
+  pointer-events: none;
+}
+
 /* Параллельное accessible-дерево: визуально скрыто, доступно с клавиатуры */
 .act-sr-list {
   position: absolute;

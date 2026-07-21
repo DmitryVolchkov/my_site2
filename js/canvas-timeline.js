@@ -41,6 +41,9 @@
       lanesConfig: [], // пользовательские полосы, заданные через setLanes() — open-spec-canvas-timeline.md «Конфиг полосы»
       groupId: '',
       clusters: [], // кластеры дата+бейдж для непользовательских (не-default) полос — вычисляются в layoutMarkers()
+      laneCoverage: {}, // { laneId: { total, byMonth: Set('year-month') } } — весь архив, не зависит от viewport (п. 4)
+      anchorDate: null,   // «якорь» пустой даты при поиске (п. 2, 7) — пунктирная вертикаль
+      nearestInfo: null,  // { date, prev, next } — панель ближайших при пустой дате
       range: null,
       hoverId: null,     // hoverId — id маркера (default-лента) или "cluster:<lane>:<date>" (полосы стран)
       selectedId: null,
@@ -60,11 +63,16 @@
     var tooltip = document.createElement('div');
     tooltip.className = 'act-tooltip';
     tooltip.hidden = true;
+    var infoPanel = document.createElement('div');
+    infoPanel.className = 'act-info-panel';
+    infoPanel.hidden = true;
+    infoPanel.setAttribute('role', 'status');
     var a11y = document.createElement('ul');
     a11y.className = 'act-sr-list';
     a11y.setAttribute('aria-label', 'События таймлайна в видимой области');
     container.appendChild(canvas);
     container.appendChild(tooltip);
+    container.appendChild(infoPanel);
     container.appendChild(a11y);
     var ctx = canvas.getContext('2d');
 
@@ -130,18 +138,41 @@
         });
     }
 
+    // Индикатор покрытия (п. 4): весь архив, не зависит от viewport — запрашивается один раз
+    // при смене конфигурации полос, а не при каждом pan/zoom.
+    function fetchLaneCoverage() {
+      if (!state.lanesConfig.length) { state.laneCoverage = {}; requestDraw(); return; }
+      fetch('/api/timeline/lane_coverage?lanes=' + encodeURIComponent(JSON.stringify(state.lanesConfig)))
+        .then(function (r) { if (!r.ok) throw new Error('lane_coverage HTTP ' + r.status); return r.json(); })
+        .then(function (data) {
+          var cov = {};
+          Object.keys(data.lanes || {}).forEach(function (laneId) {
+            var entry = data.lanes[laneId];
+            var months = {};
+            (entry.by_month || []).forEach(function (row) { months[row.year + '-' + (row.month || 0)] = row.count; });
+            cov[laneId] = { total: entry.total, byMonth: months };
+          });
+          state.laneCoverage = cov;
+          requestDraw();
+        })
+        .catch(function (err) { emit('error', err); });
+    }
+
     /* ---------- геометрия: полоса «Все события» сверху, полосы-участники компактными
        лентами над осью (open-spec-country-lanes.md, «Порядок работ», блок D) ---------- */
+
+    var STRIP_H = 4; // высота полоски покрытия под каждой полосой-участником (п. 4)
 
     function geometry() {
       var axisY = state.height - 24;
       var laneIds = state.lanesConfig.map(function (l) { return l.id; });
       var bandH = 16, gap = 3;
-      var participantAreaHeight = laneIds.length ? laneIds.length * (bandH + gap) + 4 : 0;
+      var laneStep = bandH + STRIP_H + gap;
+      var participantAreaHeight = laneIds.length ? laneIds.length * laneStep + 4 : 0;
       var defaultBottom = axisY - participantAreaHeight - (laneIds.length ? 6 : 0);
       var bands = {};
       laneIds.forEach(function (id, i) {
-        bands[id] = { y: defaultBottom + 6 + i * (bandH + gap), h: bandH };
+        bands[id] = { y: defaultBottom + 6 + i * laneStep, h: bandH };
       });
       return { axisY: axisY, defaultTop: 4, defaultBottom: defaultBottom, bands: bands, bandH: bandH };
     }
@@ -149,6 +180,17 @@
     function laneTitle(laneId) {
       var info = state.lanesInfo.find(function (l) { return l.id === laneId; });
       return info ? info.title : laneId;
+    }
+
+    // Заголовок полосы с общим числом событий по всему архиву (не по viewport) — п. 4:
+    // «Германия · 2 события», а не молчаливая пустота, которую легко прочитать как «ничего не было».
+    function laneTitleWithCount(laneId) {
+      var title = laneTitle(laneId);
+      var cov = state.laneCoverage[laneId];
+      if (!cov) return title;
+      var n = cov.total;
+      var word = n === 1 ? 'событие' : (n >= 2 && n <= 4 ? 'события' : 'событий');
+      return title + ' · ' + n + ' ' + word;
     }
 
     function pad2(n) { return String(n).padStart(2, '0'); }
@@ -276,6 +318,20 @@
         ctx.fillText(String(y), x, axisY + 16);
       }
 
+      // Якорь пустой даты при поиске (open-spec-country-lanes.md, пп. 2, 7): пунктирная
+      // вертикаль на месте искомой даты + панель «ближайших» (см. renderInfoPanel/goToDate).
+      if (state.anchorDate != null) {
+        var ax = xOf(state.anchorDate);
+        ctx.strokeStyle = colAccent;
+        ctx.lineWidth = 1.5;
+        if (ctx.setLineDash) ctx.setLineDash([4, 3]);
+        ctx.beginPath();
+        ctx.moveTo(ax, geo.defaultTop);
+        ctx.lineTo(ax, axisY);
+        ctx.stroke();
+        if (ctx.setLineDash) ctx.setLineDash([]);
+      }
+
       state.markers.filter(function (mk) { return mk.lane_id === 'default'; }).forEach(function (mk) {
         mk._x = xOf(markerYear(mk));
         if (mk.end_date) mk._x2 = xOf(markerYear(mk, true));
@@ -321,14 +377,32 @@
         ctx.fillText(label, mk._x + 5, rowY + 13);
       });
 
-      // Полосы-участники: подпись полосы слева + кластеры дата+бейдж (open-spec-country-lanes.md, п. 1)
+      // Полосы-участники: подпись со счётчиком по всему архиву + полоска покрытия по месяцам
+      // (open-spec-country-lanes.md, п. 4) — пустота на полосе должна читаться как «нет в архиве»,
+      // а не «ничего не происходило»; поэтому непокрытые месяцы намеренно НЕ подсвечиваются
+      // отдельно — рисуются только реально покрытые (никаких призрачных меток).
+      var pxPerYearForStrip = state.width / (state.t1 - state.t0);
+      var monthW = Math.max(1, pxPerYearForStrip / 12);
       state.lanesConfig.forEach(function (lane) {
         var band = geo.bands[lane.id];
         if (!band) return;
         ctx.fillStyle = colText;
         ctx.font = '10px sans-serif';
         ctx.textAlign = 'left';
-        ctx.fillText(laneTitle(lane.id), 2, band.y + band.h - 4);
+        ctx.fillText(laneTitleWithCount(lane.id), 2, band.y + band.h - 4);
+
+        var cov = state.laneCoverage[lane.id];
+        var stripY = band.y + band.h;
+        if (cov) {
+          ctx.fillStyle = colFlagBorder;
+          Object.keys(cov.byMonth).forEach(function (key) {
+            var parts = key.split('-');
+            var y = Number(parts[0]), m = Number(parts[1]) || 1;
+            var x = xOf(y + (m - 1) / 12);
+            if (x < -monthW || x > state.width + monthW) return;
+            ctx.fillRect(x, stripY, monthW, STRIP_H);
+          });
+        }
       });
       state.clusters.forEach(function (cl) {
         var band = geo.bands[cl.laneId];
@@ -380,7 +454,17 @@
       return null;
     }
 
+    // Якорь/панель ближайших актуальны только до следующего осознанного действия пользователя —
+    // ручного pan/zoom или выбора другого маркера (иначе пунктирная веха повиснет навсегда).
+    function clearAnchor() {
+      if (state.anchorDate == null) return;
+      state.anchorDate = null;
+      state.nearestInfo = null;
+      renderInfoPanel();
+    }
+
     function selectMarker(mk, opts) {
+      clearAnchor();
       state.selectedId = mk ? mk.id : null;
       requestDraw();
       if (mk) {
@@ -421,6 +505,7 @@
         var span = Math.max(0.2, Math.min(3000, span0 * scale));
         state.t0 = center - (drag.pinch.cx / state.width) * span;
         state.t1 = state.t0 + span;
+        clearAnchor();
         layoutMarkers();
         requestDraw();
         scheduleFetch();
@@ -432,6 +517,7 @@
         var span1 = drag.t1 - drag.t0;
         state.t0 = drag.t0 - (dx / state.width) * span1;
         state.t1 = state.t0 + span1;
+        clearAnchor();
         layoutMarkers();
         requestDraw();
         scheduleFetch();
@@ -501,6 +587,7 @@
         state.t0 += delta;
         state.t1 += delta;
       }
+      clearAnchor();
       layoutMarkers();
       requestDraw();
       scheduleFetch();
@@ -514,6 +601,33 @@
         s += ' — ' + (e2.day ? String(e2.day).padStart(2, '0') + '.' : '') + (e2.month ? String(e2.month).padStart(2, '0') + '.' : '') + e2.year;
       }
       return s;
+    }
+
+    // Расстояние до ближайшего события — главный элемент подсказки (п. 2): "N дн." для близких
+    // дат, "~N мес." дальше, чтобы не считать читателю дни через века.
+    function formatDiff(days) {
+      var abs = Math.abs(Number(days) || 0);
+      return abs < 31 ? (abs + ' дн.') : (Math.round(abs / 30.4) + ' мес.');
+    }
+
+    function formatNearestLine(label, info) {
+      var parts = [];
+      if (info && info.prev) parts.push('← ' + formatMarkerDate(info.prev) + ' (' + formatDiff(info.prev.diff_days) + ' назад)');
+      if (info && info.next) parts.push('→ ' + formatMarkerDate(info.next) + ' (через ' + formatDiff(info.next.diff_days) + ')');
+      return label + ': ' + (parts.length ? parts.join(', ') : 'нет данных в архиве');
+    }
+
+    // Панель «ближайших» при пустой дате: по каждой активной полосе отдельно (п. 7), а не
+    // единым архивным ответом — у "СССР" и "Германии" на одну дату могут быть разные соседи.
+    function renderInfoPanel() {
+      if (state.anchorDate == null || !state.nearestInfo) { infoPanel.hidden = true; return; }
+      var info = state.nearestInfo;
+      var laneIds = Object.keys(info.byLane || {});
+      var lines = laneIds.length
+        ? laneIds.map(function (laneId) { return formatNearestLine(info.byLane[laneId].title, info.byLane[laneId]); })
+        : [formatNearestLine('На эту дату событий нет. Ближайшие', info.global)];
+      infoPanel.textContent = lines.join(' · ');
+      infoPanel.hidden = false;
     }
 
     /* ---------- доступность ---------- */
@@ -580,7 +694,8 @@
       // не задаётся явно — она есть всегда и не участвует в дублировании маркеров.
       setLanes: function (laneConfig) {
         state.lanesConfig = (laneConfig || []).filter(function (l) { return l && l.kind && l.value; });
-        if (state.width) fetchMarkers(); // явная смена конфигурации — без дебаунса drag/zoom
+        state.laneCoverage = {};
+        if (state.width) { fetchMarkers(); fetchLaneCoverage(); } // явная смена конфигурации — без дебаунса drag/zoom
       },
       getLanes: function () {
         return state.lanesConfig.slice();
@@ -604,11 +719,43 @@
           requestDraw();
         }
       },
+      // Поиск по дате (п. 2, 7): найдено (точно/покрывает/идёт) — центрируем на реальном
+      // маркере и выделяем его; не найдено — центрируем на искомой дате, рисуем пунктирный
+      // якорь и панель ближайших событий (по каждой активной полосе отдельно).
+      // Возвращает Promise с разобранными данными ответа — date-search.js (canvas-режим,
+      // см. п. 9 в docs/open-spec-country-lanes.md) использует его, чтобы обновить карточку
+      // факта/статус без повторного дублирования этой логики.
       goToDate: function (isoDate) {
         var parts = String(isoDate).split('-').map(Number);
         var y = yearFloat(parts[0], parts[1], parts[2]);
-        var span = Math.min(state.t1 - state.t0, 4);
-        api.setViewport(y - span / 2, y + span / 2);
+        var span = Math.min(state.t1 - state.t0, 4) || 4;
+        var url = '/api/timeline/nearest?date=' + encodeURIComponent(isoDate);
+        if (state.lanesConfig.length) url += '&lanes=' + encodeURIComponent(JSON.stringify(state.lanesConfig));
+        return fetch(url)
+          .then(function (r) { if (!r.ok) throw new Error('nearest HTTP ' + r.status); return r.json(); })
+          .then(function (data) {
+            if (data.found && data.marker) {
+              var my = yearFloat(data.marker.date.year, data.marker.date.month, data.marker.date.day);
+              api.setViewport(my - span / 2, my + span / 2);
+              state.selectedId = data.marker.id;
+              state.anchorDate = null;
+              state.nearestInfo = null;
+            } else {
+              api.setViewport(y - span / 2, y + span / 2);
+              state.selectedId = null;
+              state.anchorDate = y;
+              var byLane = {};
+              Object.keys(data.by_lane || {}).forEach(function (laneId) {
+                var lr = data.by_lane[laneId];
+                byLane[laneId] = { title: lr.title, prev: lr.nearest_prev, next: lr.nearest_next };
+              });
+              state.nearestInfo = { date: isoDate, global: { prev: data.nearest_prev, next: data.nearest_next }, byLane: byLane };
+            }
+            renderInfoPanel();
+            requestDraw();
+            return data;
+          })
+          .catch(function (err) { emit('error', err); return null; });
       },
       destroy: function () {
         state.destroyed = true;

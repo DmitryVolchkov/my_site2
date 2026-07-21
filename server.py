@@ -1386,14 +1386,13 @@ def events_to_scale(events: list[dict[str, str]]) -> dict[str, object]:
     }
 
 
-def timeline_nearest(conn: sqlite3.Connection, date_str: str) -> dict[str, object]:
-    """Поиск по дате (canvas-спека + open-spec-country-lanes.md пп. 2-3, 7, 9):
+def _nearest_search(rows: list, target: "object") -> dict[str, object]:
+    """Общее ядро поиска по дате для набора строк events (open-spec-country-lanes.md, пп. 2-3, 7, 9):
     точные попадания, «покрывающие» события (точность месяц/год/approximate),
-    идущие интервалы (start <= date <= end), ближайшие в обе стороны с расстоянием в днях."""
+    идущие интервалы (start <= date <= end), ближайшие в обе стороны с расстоянием в днях.
+    Вынесено из timeline_nearest, чтобы применять и к общему набору, и к подмножеству одной полосы (по п. 7)."""
     import calendar
     from datetime import date as _date
-
-    target = _date.fromisoformat(date_str)
 
     def _mk_date(y: int, m: int | None, d: int | None, *, end_side: bool = False) -> _date:
         month = m or (12 if end_side else 1)
@@ -1402,14 +1401,6 @@ def timeline_nearest(conn: sqlite3.Connection, date_str: str) -> dict[str, objec
         else:
             day = calendar.monthrange(y, month)[1] if end_side else 1
         return _date(y, month, day)
-
-    rows = conn.execute(
-        f"""
-        SELECT {", ".join(event_db_columns())} FROM events
-        WHERE status = 'published' AND verification_status = 'verified'
-          AND COALESCE(attached_to, '') = ''
-        """
-    ).fetchall()
 
     exact: list[dict[str, object]] = []
     covering: list[dict[str, object]] = []
@@ -1463,10 +1454,18 @@ def timeline_nearest(conn: sqlite3.Connection, date_str: str) -> dict[str, objec
             if nearest_next is None or diff < int(nearest_next["diff_days"]):
                 nearest_next = dict(payload, diff_days=diff)
 
+    # Приоритет для «найдено ли что-то на эту дату» (open-spec-country-lanes.md, пп. 2-3, 9):
+    # точное совпадение -> покрывающее по точности месяц/год -> идущий интервал -> иначе ближайшее.
+    # Раньше при отсутствии exact сразу падало на nearest_prev/next, игнорируя covering/ongoing —
+    # клиент показал бы «ближайшее через N дней» вместо корректного «покрывает»/«длится».
     marker: dict[str, object] | None = None
     diff_days = 0
     if exact:
         marker = exact[0]
+    elif covering:
+        marker = covering[0]
+    elif ongoing:
+        marker = ongoing[0]
     else:
         candidates = [c for c in (nearest_prev, nearest_next) if c]
         if candidates:
@@ -1475,8 +1474,8 @@ def timeline_nearest(conn: sqlite3.Connection, date_str: str) -> dict[str, objec
             diff_days = abs(int(best["diff_days"]))
 
     return {
-        "date": date_str,
         "exact": bool(exact),
+        "found": bool(exact or covering or ongoing),
         "diff_days": diff_days,
         "marker": marker,
         "matches": exact,
@@ -1485,6 +1484,45 @@ def timeline_nearest(conn: sqlite3.Connection, date_str: str) -> dict[str, objec
         "nearest_prev": nearest_prev,
         "nearest_next": nearest_next,
     }
+
+
+def timeline_nearest(conn: sqlite3.Connection, date_str: str, lanes_param: str = "") -> dict[str, object]:
+    """Поиск по дате (canvas-спека + open-spec-country-lanes.md пп. 2-3, 7, 9).
+    Без lanes — только общий результат (обратная совместимость). С lanes — дополнительно
+    считает тот же поиск отдельно на подмножестве событий каждой полосы-участника
+    (событие входит в подмножество полосы, если страна полосы — участник события,
+    event_countries.role='participant'), чтобы «ближайшие события» были осмысленны
+    именно для выбранной страны, а не для архива в целом (п. 7: «по каждой полосе отдельно»)."""
+    from datetime import date as _date
+
+    target = _date.fromisoformat(date_str)
+
+    rows = conn.execute(
+        f"""
+        SELECT {", ".join(event_db_columns())} FROM events
+        WHERE status = 'published' AND verification_status = 'verified'
+          AND COALESCE(attached_to, '') = ''
+        """
+    ).fetchall()
+
+    result = _nearest_search(rows, target)
+    result["date"] = date_str
+
+    lanes_config = _parse_lanes_param(lanes_param)
+    by_lane: dict[str, object] = {}
+    if lanes_config:
+        participants_by_event: dict[str, set[str]] = {}
+        for r in conn.execute("SELECT event_id, country FROM event_countries WHERE role = 'participant'"):
+            participants_by_event.setdefault(str(r["event_id"]), set()).add(str(r["country"]))
+        for lane in lanes_config:
+            lane_rows = [row for row in rows if lane["value"] in participants_by_event.get(str(row["id"]), set())]
+            lane_result = _nearest_search(lane_rows, target)
+            lane_result["date"] = date_str
+            lane_result["title"] = lane["title"]
+            by_lane[lane["id"]] = lane_result
+    result["by_lane"] = by_lane
+
+    return result
 
 
 def _parse_viewport_bound(value: str, *, end_side: bool = False) -> "object":
@@ -1684,6 +1722,37 @@ def timeline_markers(
     }
 
 
+def lane_coverage(conn: sqlite3.Connection, lanes_param: str) -> dict[str, object]:
+    """Публичный индикатор покрытия для полос-участников (open-spec-country-lanes.md, п. 4):
+    суммарный счётчик и помесячная плотность по всему опубликованному+проверенному архиву
+    (не зависит от текущего viewport) — чтобы пустота на полосе читалась как «нет в архиве»,
+    а не «ничего не происходило». Публичный (без авторизации) — редакторский аналог с ролью
+    place/participant по всем статусам см. coverage_report()/`/api/reports/coverage`."""
+    lanes_config = _parse_lanes_param(lanes_param)
+    result: dict[str, object] = {}
+    for lane in lanes_config:
+        rows = conn.execute(
+            """
+            SELECT CAST(e.start_year AS INTEGER) AS y,
+                   CAST(NULLIF(e.start_month, '') AS INTEGER) AS m,
+                   COUNT(DISTINCT e.id) AS c
+            FROM event_countries ec
+            JOIN events e ON e.id = ec.event_id
+            WHERE ec.role = 'participant' AND ec.country = ?
+              AND e.status = 'published' AND e.verification_status = 'verified'
+              AND COALESCE(e.attached_to, '') = ''
+            GROUP BY y, m
+            ORDER BY y, m
+            """,
+            (lane["value"],),
+        ).fetchall()
+        result[lane["id"]] = {
+            "total": sum(int(r["c"]) for r in rows),
+            "by_month": [{"year": r["y"], "month": r["m"], "count": r["c"]} for r in rows],
+        }
+    return {"lanes": result}
+
+
 def coverage_report(conn: sqlite3.Connection) -> dict[str, object]:
     """Отчёт «пробелы покрытия» (open-spec-country-lanes.md, п. 13): страна x год x роль."""
     rows = conn.execute(
@@ -1869,9 +1938,17 @@ class ArchiveHandler(SimpleHTTPRequestHandler):
             date_value = (query.get("date") or [""])[0].strip()
             try:
                 with get_db() as conn:
-                    self.send_json(timeline_nearest(conn, date_value))
-            except ValueError:
-                self.send_json({"error": "Ожидается параметр date в формате YYYY-MM-DD."}, status=400)
+                    self.send_json(timeline_nearest(conn, date_value, (query.get("lanes") or [""])[0]))
+            except ValueError as exc:
+                self.send_json({"error": str(exc) or "Ожидается параметр date в формате YYYY-MM-DD."}, status=400)
+            return
+        if path == "/api/timeline/lane_coverage":
+            query = parse_qs(urlparse(self.path).query)
+            try:
+                with get_db() as conn:
+                    self.send_json(lane_coverage(conn, (query.get("lanes") or [""])[0]))
+            except ValueError as exc:
+                self.send_json({"error": str(exc)}, status=400)
             return
         if path == "/api/reports/coverage":
             with get_db() as conn:

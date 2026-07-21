@@ -825,6 +825,24 @@
 
 
 
+  // Canvas-режим (open-spec-country-lanes.md, п. 9) отличают по наличию setLanes/getLanes —
+  // этих методов нет у TimelineJS-инстанса, поэтому легаси-путь ниже они не затрагивают.
+  function isCanvasTimeline(tl) {
+    return !!(tl && typeof tl.setLanes === 'function' && typeof tl.goToDate === 'function');
+  }
+
+  function formatDiffDaysRu(n) {
+    var abs = Math.abs(Number(n) || 0);
+    return abs < 31 ? (abs + ' дн.') : (Math.round(abs / 30.4) + ' мес.');
+  }
+
+  function nearestPairText(prev, next) {
+    var bits = [];
+    if (prev) bits.push('← ' + formatDateRu({ start_date: prev.date }) + ' (' + formatDiffDaysRu(prev.diff_days) + ' назад)');
+    if (next) bits.push('→ ' + formatDateRu({ start_date: next.date }) + ' (через ' + formatDiffDaysRu(next.diff_days) + ')');
+    return bits.length ? bits.join(', ') : 'нет данных в архиве';
+  }
+
   function goToEvent(timeline, ev) {
 
     if (!timeline || !ev || !ev.unique_id) return false;
@@ -1163,6 +1181,45 @@
 
 
 
+    // Canvas-режим делегирует напрямую в timeline.goToDate() — сервер уже умеет находить
+    // точное/покрывающее/идущее событие и, если на дату ничего нет, ближайшие по каждой
+    // активной полосе отдельно (open-spec-country-lanes.md, пп. 2, 7, 9). Старая клиентская
+    // «ближайшее по всему JSON» логика (searchByDate ниже) для этого режима не используется.
+    function searchByDateCanvas(isoDate) {
+      timeline.goToDate(isoDate).then(function (data) {
+        if (!data) {
+          setStatus('Не удалось выполнить поиск по дате.', 'is-error');
+          return;
+        }
+        if (data.found && data.marker) {
+          renderExtraMatches([]);
+          var ev = byId[data.marker.id];
+          if (ev) {
+            selectEvent(ev, { moveTimeline: false });
+            setStatus('Показано: ' + ((ev.text && ev.text.headline) || ev.unique_id), 'is-success');
+          } else {
+            updateFactPanel(null);
+            setStatus('Событие найдено, но недоступно в локальном индексе фактов.', 'is-error');
+          }
+          return;
+        }
+
+        updateFactPanel(null);
+        renderExtraMatches([]);
+        var lanes = (typeof timeline.getLanes === 'function') ? timeline.getLanes() : [];
+        var laneIds = Object.keys(data.by_lane || {});
+        if (lanes.length && laneIds.length) {
+          var parts = laneIds.map(function (laneId) {
+            var lr = data.by_lane[laneId];
+            return lr.title + ': ' + nearestPairText(lr.nearest_prev, lr.nearest_next);
+          });
+          setStatus('На эту дату событий нет. Ближайшие — ' + parts.join('; '), 'is-error');
+        } else {
+          setStatus('На эту дату событий нет. Ближайшие — ' + nearestPairText(data.nearest_prev, data.nearest_next), 'is-error');
+        }
+      });
+    }
+
     function searchByDate(targetDate) {
 
       if (!events.length) {
@@ -1254,6 +1311,14 @@
       }
 
       userHasSearched = true;
+
+      if (isCanvasTimeline(timeline)) {
+
+        searchByDateCanvas(input.value);
+
+        return;
+
+      }
 
       var parts = input.value.split('-').map(Number);
 
