@@ -1,13 +1,17 @@
 /**
- * ArchiveCanvasTimeline — собственный Canvas-рендер шкалы времени (MVP, этап 1).
- * Спека: docs/open-spec-canvas-timeline.md. Заменяет TimelineJS за флагом ?timeline=canvas.
+ * ArchiveCanvasTimeline — собственный Canvas-рендер шкалы времени (MVP этап 1 + этап 2 «Полосы»).
+ * Спека: docs/open-spec-canvas-timeline.md, docs/open-spec-country-lanes.md.
+ * Заменяет TimelineJS за флагом ?timeline=canvas.
  *
  * Ключевые решения из спеки:
  *  - первый draw() только после ненулевых размеров контейнера (ResizeObserver, без ретраев);
  *  - рендер по dirty-флагу, без постоянного rAF-цикла;
  *  - данные viewport через GET /api/timeline/markers (+ /range для границ), AbortController + дебаунс;
- *  - одна полоса, greedy-разводка перекрытий по рядам;
- *  - параллельный sr-only список маркеров для клавиатуры и скринридера;
+ *  - полоса «Все события» (default) — greedy-разводка перекрытий по рядам, флаг = заголовок;
+ *  - пользовательские полосы (participant_country, setLanes) — флаг = только дата + бейдж «×N»
+ *    при нескольких событиях на одну дату (open-spec-country-lanes.md, п. 1); заголовок — в hover;
+ *  - параллельный sr-only список маркеров для клавиатуры и скринридера — не теряет детализацию
+ *    даже там, где визуально события схлопнуты в один флаг-кластер;
  *  - touch-action: pan-y — вертикальный скролл страницы не перехватывается.
  */
 (function () {
@@ -33,8 +37,12 @@
     var state = {
       t0: 1930, t1: 1950,
       markers: [],
+      lanesInfo: [{ id: 'default', title: 'Все события', kind: 'default' }],
+      lanesConfig: [], // пользовательские полосы, заданные через setLanes() — open-spec-canvas-timeline.md «Конфиг полосы»
+      groupId: '',
+      clusters: [], // кластеры дата+бейдж для непользовательских (не-default) полос — вычисляются в layoutMarkers()
       range: null,
-      hoverId: null,
+      hoverId: null,     // hoverId — id маркера (default-лента) или "cluster:<lane>:<date>" (полосы стран)
       selectedId: null,
       dirty: false,
       rafScheduled: false,
@@ -101,11 +109,15 @@
       var ctrl = new AbortController();
       state.abortCtrl = ctrl;
       var from = Math.floor(state.t0), to = Math.ceil(state.t1);
-      fetch('/api/timeline/markers?from=' + from + '&to=' + to + '&limit=500', { signal: ctrl.signal })
+      var url = '/api/timeline/markers?from=' + from + '&to=' + to + '&limit=500';
+      if (state.lanesConfig.length) url += '&lanes=' + encodeURIComponent(JSON.stringify(state.lanesConfig));
+      if (state.groupId) url += '&group_id=' + encodeURIComponent(state.groupId);
+      fetch(url, { signal: ctrl.signal })
         .then(function (r) { if (!r.ok) throw new Error('markers HTTP ' + r.status); return r.json(); })
         .then(function (data) {
           if (ctrl !== state.abortCtrl) return;
           state.markers = data.markers || [];
+          state.lanesInfo = data.lanes || state.lanesInfo;
           state.range = data.range || state.range;
           layoutMarkers();
           rebuildA11y();
@@ -118,6 +130,35 @@
         });
     }
 
+    /* ---------- геометрия: полоса «Все события» сверху, полосы-участники компактными
+       лентами над осью (open-spec-country-lanes.md, «Порядок работ», блок D) ---------- */
+
+    function geometry() {
+      var axisY = state.height - 24;
+      var laneIds = state.lanesConfig.map(function (l) { return l.id; });
+      var bandH = 16, gap = 3;
+      var participantAreaHeight = laneIds.length ? laneIds.length * (bandH + gap) + 4 : 0;
+      var defaultBottom = axisY - participantAreaHeight - (laneIds.length ? 6 : 0);
+      var bands = {};
+      laneIds.forEach(function (id, i) {
+        bands[id] = { y: defaultBottom + 6 + i * (bandH + gap), h: bandH };
+      });
+      return { axisY: axisY, defaultTop: 4, defaultBottom: defaultBottom, bands: bands, bandH: bandH };
+    }
+
+    function laneTitle(laneId) {
+      var info = state.lanesInfo.find(function (l) { return l.id === laneId; });
+      return info ? info.title : laneId;
+    }
+
+    function pad2(n) { return String(n).padStart(2, '0'); }
+
+    function formatShortDate(d) {
+      if (d.day && d.month) return pad2(d.day) + '.' + pad2(d.month);
+      if (d.month) return pad2(d.month) + '.' + d.year;
+      return String(d.year);
+    }
+
     /* ---------- раскладка (greedy-разводка перекрытий) ---------- */
 
     function markerWidth(mk) {
@@ -126,14 +167,21 @@
     }
 
     function layoutMarkers() {
+      var defaultMarkers = [];
+      var byLane = {};
+      state.markers.forEach(function (mk) {
+        mk._x = xOf(markerYear(mk));
+        mk._x2 = mk.end_date ? xOf(markerYear(mk, true)) : null;
+        if (mk.lane_id === 'default') defaultMarkers.push(mk);
+        else (byLane[mk.lane_id] = byLane[mk.lane_id] || []).push(mk);
+      });
+
       var rows = [[], [], []];
-      state.markers
+      defaultMarkers
         .slice()
         .sort(function (a, b) { return markerYear(a) - markerYear(b); })
         .forEach(function (mk) {
-          mk._x = xOf(markerYear(mk));
           mk._w = markerWidth(mk);
-          mk._x2 = mk.end_date ? xOf(markerYear(mk, true)) : null;
           var placed = false;
           for (var r = 0; r < rows.length; r++) {
             var last = rows[r][rows[r].length - 1];
@@ -153,6 +201,29 @@
             mk._row = best;
           }
         });
+
+      // Полосы-участники: флаг = дата (не заголовок); несколько событий на одну дату
+      // схлопываются в один кластер с бейджем «×N» — open-spec-country-lanes.md, п. 1.
+      var clusters = [];
+      Object.keys(byLane).forEach(function (laneId) {
+        var byDate = {};
+        byLane[laneId].forEach(function (mk) {
+          var d = mk.date;
+          var key = d.year + '-' + (d.month || 0) + '-' + (d.day || 0);
+          (byDate[key] = byDate[key] || []).push(mk);
+        });
+        Object.keys(byDate).forEach(function (key) {
+          var list = byDate[key];
+          clusters.push({
+            id: 'cluster:' + laneId + ':' + key,
+            laneId: laneId,
+            x: xOf(markerYear(list[0])),
+            date: list[0].date,
+            markers: list
+          });
+        });
+      });
+      state.clusters = clusters;
     }
 
     /* ---------- отрисовка ---------- */
@@ -170,7 +241,8 @@
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, state.width, state.height);
 
-      var axisY = state.height - 24;
+      var geo = geometry();
+      var axisY = geo.axisY;
       var colAxis = cssVar('--act-axis', '#8a8a86');
       var colText = cssVar('--act-text', '#333');
       var colFlag = cssVar('--act-flag', '#e8f0fb');
@@ -204,10 +276,10 @@
         ctx.fillText(String(y), x, axisY + 16);
       }
 
-      state.markers.forEach(function (mk) {
+      state.markers.filter(function (mk) { return mk.lane_id === 'default'; }).forEach(function (mk) {
         mk._x = xOf(markerYear(mk));
         if (mk.end_date) mk._x2 = xOf(markerYear(mk, true));
-        var rowY = 14 + (mk._row || 0) * 26;
+        var rowY = geo.defaultTop + 10 + (mk._row || 0) * 26;
         var isHover = mk.id === state.hoverId;
         var isSel = mk.id === state.selectedId;
         var border = isSel ? colAccent : colFlagBorder;
@@ -248,15 +320,62 @@
         if (label.length > maxChars) label = label.slice(0, Math.max(1, maxChars - 1)) + '…';
         ctx.fillText(label, mk._x + 5, rowY + 13);
       });
+
+      // Полосы-участники: подпись полосы слева + кластеры дата+бейдж (open-spec-country-lanes.md, п. 1)
+      state.lanesConfig.forEach(function (lane) {
+        var band = geo.bands[lane.id];
+        if (!band) return;
+        ctx.fillStyle = colText;
+        ctx.font = '10px sans-serif';
+        ctx.textAlign = 'left';
+        ctx.fillText(laneTitle(lane.id), 2, band.y + band.h - 4);
+      });
+      state.clusters.forEach(function (cl) {
+        var band = geo.bands[cl.laneId];
+        if (!band) return;
+        var isHover = state.hoverId === cl.id;
+        var isSel = cl.markers.length === 1 && cl.markers[0].id === state.selectedId;
+        var border = isSel ? colAccent : colFlagBorder;
+        var label = formatShortDate(cl.date) + (cl.markers.length > 1 ? ' ×' + cl.markers.length : '');
+        var w = Math.max(30, 8 + label.length * 6);
+        cl._w = w;
+        cl._y = band.y;
+        ctx.strokeStyle = border;
+        ctx.lineWidth = isSel || isHover ? 2 : 1;
+        ctx.beginPath();
+        ctx.moveTo(cl.x, band.y);
+        ctx.lineTo(cl.x, band.y + band.h + 4);
+        ctx.stroke();
+        ctx.fillStyle = isSel ? colAccent : colFlag;
+        ctx.beginPath();
+        if (ctx.roundRect) ctx.roundRect(cl.x, band.y, w, band.h, 3);
+        else ctx.rect(cl.x, band.y, w, band.h);
+        ctx.fill();
+        ctx.stroke();
+        ctx.fillStyle = isSel ? '#fff' : colText;
+        ctx.font = (isHover ? 'bold ' : '') + '10px sans-serif';
+        ctx.textAlign = 'left';
+        ctx.fillText(label, cl.x + 3, band.y + band.h - 4);
+      });
     }
 
     /* ---------- hit-test и взаимодействие ---------- */
 
     function hitTest(px, py) {
-      for (var i = state.markers.length - 1; i >= 0; i--) {
-        var mk = state.markers[i];
-        var rowY = 14 + (mk._row || 0) * 26;
-        if (px >= mk._x - 3 && px <= mk._x + mk._w + 3 && py >= rowY - 3 && py <= rowY + 21) return mk;
+      var geo = geometry();
+      for (var c = state.clusters.length - 1; c >= 0; c--) {
+        var cl = state.clusters[c];
+        var band = geo.bands[cl.laneId];
+        if (!band || cl._w == null) continue;
+        if (px >= cl.x - 3 && px <= cl.x + cl._w + 3 && py >= band.y - 3 && py <= band.y + band.h + 3) {
+          return { cluster: cl };
+        }
+      }
+      var defaultMarkers = state.markers.filter(function (mk) { return mk.lane_id === 'default'; });
+      for (var i = defaultMarkers.length - 1; i >= 0; i--) {
+        var mk = defaultMarkers[i];
+        var rowY = geo.defaultTop + 10 + (mk._row || 0) * 26;
+        if (px >= mk._x - 3 && px <= mk._x + mk._w + 3 && py >= rowY - 3 && py <= rowY + 21) return { marker: mk };
       }
       return null;
     }
@@ -318,18 +437,28 @@
         scheduleFetch();
         return;
       }
-      var mk = hitTest(e.offsetX, e.offsetY);
-      var newHover = mk ? mk.id : null;
+      var hit = hitTest(e.offsetX, e.offsetY);
+      var newHover = hit ? (hit.marker ? hit.marker.id : hit.cluster.id) : null;
       if (newHover !== state.hoverId) {
         state.hoverId = newHover;
-        canvas.style.cursor = mk ? 'pointer' : 'grab';
-        if (mk) {
+        canvas.style.cursor = hit ? 'pointer' : 'grab';
+        if (hit && hit.marker) {
+          var mk = hit.marker;
           tooltip.textContent = (mk.headline || '') + ' — ' + formatMarkerDate(mk);
           tooltip.hidden = false;
           var tx = Math.max(4, Math.min(e.offsetX + 10, state.width - tooltip.offsetWidth - 4));
           tooltip.style.left = tx + 'px';
           tooltip.style.top = Math.max(2, e.offsetY - 30) + 'px';
           emit('hover', { unique_id: mk.id, marker: mk });
+        } else if (hit && hit.cluster) {
+          var cl = hit.cluster;
+          var titles = cl.markers.map(function (m) { return m.headline || m.id; }).join('; ');
+          tooltip.textContent = formatMarkerDate(cl.markers[0]) + ' — ' + titles;
+          tooltip.hidden = false;
+          var tx2 = Math.max(4, Math.min(e.offsetX + 10, state.width - tooltip.offsetWidth - 4));
+          tooltip.style.left = tx2 + 'px';
+          tooltip.style.top = Math.max(2, e.offsetY - 30) + 'px';
+          emit('hover', { unique_id: cl.markers[0].id, marker: cl.markers[0], cluster: cl });
         } else {
           tooltip.hidden = true;
         }
@@ -344,8 +473,11 @@
       if (drag.active && Object.keys(drag.pointers).length === 0) {
         drag.active = false;
         if (!wasDrag) {
-          var mk = hitTest(e.offsetX, e.offsetY);
-          if (mk) selectMarker(mk);
+          var hit = hitTest(e.offsetX, e.offsetY);
+          if (hit && hit.marker) selectMarker(hit.marker);
+          // Кластер с несколькими событиями на одну дату: MVP выбирает первое (заголовки —
+          // в hover-подсказке); полноценный разворот списка — лестница зума, п. 8 country-lanes.
+          else if (hit && hit.cluster) selectMarker(hit.cluster.markers[0]);
         }
       }
     }
@@ -387,12 +519,15 @@
     /* ---------- доступность ---------- */
 
     function rebuildA11y() {
+      // Полный список маркеров (без кластеризации) — доступность не теряет детализацию
+      // даже там, где визуально события схлопнуты в один флаг-кластер полосы (см. draw()).
       a11y.innerHTML = '';
       state.markers.forEach(function (mk) {
         var li = document.createElement('li');
         var btn = document.createElement('button');
         btn.type = 'button';
-        btn.textContent = (mk.headline || mk.id) + ', ' + formatMarkerDate(mk);
+        var prefix = mk.lane_id && mk.lane_id !== 'default' ? laneTitle(mk.lane_id) + ' — ' : '';
+        btn.textContent = prefix + (mk.headline || mk.id) + ', ' + formatMarkerDate(mk);
         btn.addEventListener('click', function () { selectMarker(mk); });
         li.appendChild(btn);
         a11y.appendChild(li);
@@ -439,6 +574,21 @@
       refresh: fetchMarkers,
       on: function (name, handler) {
         (state.handlers[name] = state.handlers[name] || []).push(handler);
+      },
+      // Конфиг активных полос — open-spec-canvas-timeline.md, «Конфиг полосы (JSON)»:
+      // [{ id, kind: 'participant_country', value, title }, ...]. Полоса «Все события»
+      // не задаётся явно — она есть всегда и не участвует в дублировании маркеров.
+      setLanes: function (laneConfig) {
+        state.lanesConfig = (laneConfig || []).filter(function (l) { return l && l.kind && l.value; });
+        if (state.width) fetchMarkers(); // явная смена конфигурации — без дебаунса drag/zoom
+      },
+      getLanes: function () {
+        return state.lanesConfig.slice();
+      },
+      // MVP этапа 2: фильтр по группе (с иерархией на сервере — основная группа включает подгруппы)
+      setFilters: function (filters) {
+        state.groupId = (filters && filters.group_id) || '';
+        if (state.width) fetchMarkers();
       },
       select: function (id) {
         var mk = state.markers.find(function (m) { return m.id === id; });

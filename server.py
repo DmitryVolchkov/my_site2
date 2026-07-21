@@ -1515,28 +1515,97 @@ def timeline_range(conn: sqlite3.Connection) -> dict[str, object]:
     return {"min_year": row[0], "max_year": row[1], "event_count": row[2]}
 
 
-def timeline_markers(conn: sqlite3.Connection, from_str: str, to_str: str, limit: int) -> dict[str, object]:
-    """Маркеры viewport (canvas-спека, этап 1): только public-ready, без вторичных (attached_to),
-    одна полоса default. Интервальные события попадают в окно, если пересекают его."""
+MAX_USER_LANES = 12  # docs/open-spec-canvas-timeline.md, раздел «Полосы» — ориентир верхней границы
+
+
+def _group_filter_ids(conn: sqlite3.Connection, group_id: str) -> set[str]:
+    """Иерархия групп (open-spec-country-lanes.md, п. 6): основная группа фильтром
+    включает все свои подгруппы; подгруппа фильтрует только себя."""
+    if not group_id:
+        return set()
+    row = conn.execute("SELECT parent_id FROM groups WHERE id = ?", (group_id,)).fetchone()
+    if row is None:
+        return {group_id}
+    if row["parent_id"]:
+        return {group_id}
+    children = conn.execute("SELECT id FROM groups WHERE parent_id = ?", (group_id,)).fetchall()
+    return {group_id} | {str(c["id"]) for c in children}
+
+
+def _parse_lanes_param(raw: str) -> list[dict[str, str]]:
+    """Конфиг полос (open-spec-canvas-timeline.md, «Конфиг полосы (JSON)»).
+    MVP этапа 2 поддерживает kind='participant_country' (open-spec-country-lanes.md, п. 5)."""
+    if not raw:
+        return []
+    try:
+        data = json.loads(raw)
+    except (ValueError, TypeError):
+        raise ValueError("Параметр lanes должен быть корректным JSON-массивом.")
+    if not isinstance(data, list):
+        raise ValueError("Параметр lanes должен быть JSON-массивом.")
+    lanes = []
+    for item in data[:MAX_USER_LANES]:
+        if not isinstance(item, dict):
+            continue
+        kind = str(item.get("kind", "")).strip()
+        value = str(item.get("value", "")).strip()
+        lane_id = str(item.get("id", "")).strip() or f"lane-{kind}-{value}"
+        title = str(item.get("title", "")).strip() or value or lane_id
+        if kind != "participant_country" or not value:
+            continue
+        lanes.append({"id": lane_id, "kind": kind, "value": value, "title": title})
+    return lanes
+
+
+def timeline_markers(
+    conn: sqlite3.Connection,
+    from_str: str,
+    to_str: str,
+    limit: int,
+    lanes_param: str = "",
+    group_id: str = "",
+) -> dict[str, object]:
+    """Маркеры viewport (canvas-спека, этап 1-2): только public-ready, без вторичных (attached_to).
+    Без lanes — одна полоса default (обратная совместимость с MVP). С lanes — дополнительно
+    возвращает по маркеру на каждую полосу-участника, к которой относится событие (event_countries,
+    role='participant'); событие может дать несколько маркеров с одним id и разными lane_id
+    (open-spec-country-lanes.md, п. 5; open-spec-canvas-timeline.md, «Полосы»).
+    group_id фильтрует набор событий целиком (не полоса), с учётом иерархии групп (п. 6)."""
     import calendar
     from datetime import date as _date
 
     frm = _parse_viewport_bound(from_str)
     to = _parse_viewport_bound(to_str, end_side=True)
     limit = max(1, min(int(limit or 500), 2000))
+    lanes_config = _parse_lanes_param(lanes_param)
+    group_ids = _group_filter_ids(conn, group_id)
 
     def _mk(y: int, m: int | None, d: int | None, *, end_side: bool = False) -> _date:
         month = m or (12 if end_side else 1)
         day = d or (calendar.monthrange(y, month)[1] if end_side else 1)
         return _date(y, month, min(day, calendar.monthrange(y, month)[1]))
 
-    rows = conn.execute(
-        f"""
-        SELECT {", ".join(event_db_columns())} FROM events
+    query = f"""
+        SELECT {", ".join(event_db_columns())} FROM events e
         WHERE status = 'published' AND verification_status = 'verified'
           AND COALESCE(attached_to, '') = ''
+    """
+    params: list[str] = []
+    if group_ids:
+        placeholders = ", ".join("?" for _ in group_ids)
+        query += f"""
+          AND EXISTS (
+              SELECT 1 FROM event_groups eg WHERE eg.event_id = e.id AND eg.group_id IN ({placeholders})
+          )
         """
-    ).fetchall()
+        params.extend(sorted(group_ids))
+    rows = conn.execute(query, params).fetchall()
+
+    # Участники по событию — одним запросом, чтобы не бить БД на N+1 внутри цикла.
+    participants_by_event: dict[str, set[str]] = {}
+    if lanes_config:
+        for r in conn.execute("SELECT event_id, country FROM event_countries WHERE role = 'participant'"):
+            participants_by_event.setdefault(str(r["event_id"]), set()).add(str(r["country"]))
 
     visible: list[tuple] = []
     for row in rows:
@@ -1556,16 +1625,10 @@ def timeline_markers(conn: sqlite3.Connection, from_str: str, to_str: str, limit
         importance = _int_or_none(str(row["importance"] or "")) or 0
         visible.append((importance, start, row, month, day, end_year))
 
-    total = len(visible)
-    visible.sort(key=lambda item: (-item[0], item[1], str(item[2]["id"])))
-    truncated = total > limit
-    visible = visible[:limit]
-
-    markers = []
-    for importance, start, row, month, day, end_year in visible:
+    def _build_marker(row, month, day, end_year, importance, lane_id) -> dict[str, object]:
         marker = {
             "id": str(row["id"]),
-            "lane_id": "default",
+            "lane_id": lane_id,
             "date": {"year": int(str(row["start_year"])), "month": month, "day": day},
             "end_date": None,
             "headline": str(row["headline"] or ""),
@@ -1585,13 +1648,36 @@ def timeline_markers(conn: sqlite3.Connection, from_str: str, to_str: str, limit
                 "month": _int_or_none(str(row["end_month"] or "")),
                 "day": _int_or_none(str(row["end_day"] or "")),
             }
-        markers.append(marker)
+        return marker
+
+    all_markers: list[tuple] = []
+    for importance, start, row, month, day, end_year in visible:
+        all_markers.append((importance, start, str(row["id"]), "default", row, month, day, end_year))
+        if lanes_config:
+            countries = participants_by_event.get(str(row["id"]), set())
+            for lane in lanes_config:
+                if lane["value"] in countries:
+                    all_markers.append((importance, start, str(row["id"]), lane["id"], row, month, day, end_year))
+
+    total = len(all_markers)
+    all_markers.sort(key=lambda item: (item[3], -item[0], item[1], item[2]))
+    truncated = total > limit
+    all_markers = all_markers[:limit]
+
+    markers = [
+        _build_marker(row, month, day, end_year, importance, lane_id)
+        for importance, start, _id, lane_id, row, month, day, end_year in all_markers
+    ]
+
+    lanes_out = [{"id": "default", "title": "Все события", "kind": "default"}]
+    for lane in lanes_config:
+        lanes_out.append({"id": lane["id"], "title": lane["title"], "kind": lane["kind"], "value": lane["value"]})
 
     rng = timeline_range(conn)
     return {
         "range": {"min_year": rng["min_year"], "max_year": rng["max_year"]},
         "viewport": {"from": frm.isoformat(), "to": to.isoformat()},
-        "lanes": [{"id": "default", "title": "Все события", "kind": "default"}],
+        "lanes": lanes_out,
         "markers": markers,
         "truncated": truncated,
         "total_in_viewport": total,
@@ -1765,9 +1851,13 @@ class ArchiveHandler(SimpleHTTPRequestHandler):
                             (query.get("from") or [""])[0],
                             (query.get("to") or [""])[0],
                             int((query.get("limit") or ["500"])[0]),
+                            (query.get("lanes") or [""])[0],
+                            (query.get("group_id") or [""])[0],
                         )
                     )
-            except (ValueError, IndexError):
+            except ValueError as exc:
+                self.send_json({"error": str(exc) or "Ожидаются параметры from и to (YYYY или YYYY-MM-DD)."}, status=400)
+            except IndexError:
                 self.send_json({"error": "Ожидаются параметры from и to (YYYY или YYYY-MM-DD)."}, status=400)
             return
         if path == "/api/timeline/range":
